@@ -493,6 +493,13 @@ def load_model_ensemble_and_task(
                 if emb_key in state["model"] and oproj_key not in state["model"]:
                     state["model"][oproj_key] = state["model"][emb_key]
 
+            logger.info(f"CFG -------->>>>>>>>>>> {cfg.model}")
+            
+            cfg.task.merges_filename = "/large_experiments/xlmg/data/gptz/tokenizers/gpt2-merges.txt"
+            cfg.task.vocab_filename = "/large_experiments/xlmg/data/gptz/tokenizers/gpt2-vocab.json"
+            cfg.model.model_parallel_size = 1
+            cfg.common.model_parallel_size = 1
+
             if task is None:
                 task = tasks.setup_task(cfg.task)
 
@@ -504,6 +511,10 @@ def load_model_ensemble_and_task(
             else:
                 # build model for ensemble
                 model = task.build_model(cfg.model)
+
+            oproj_key = "decoder.output_projection.weight"
+            emb_key = "decoder.embed_tokens.weight"
+            state["model"][oproj_key] = state["model"][emb_key]
 
             model.load_state_dict(state["model"], strict=strict, model_cfg=cfg.model)
             logger.info("Done loading state dict")

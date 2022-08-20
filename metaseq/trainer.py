@@ -913,7 +913,9 @@ class Trainer(object):
         return logging_output
 
     def zero_grad(self):
-        self.optimizer.zero_grad()
+        # We might only use this class for validation, in which case there won't be an optimizer.
+        if self.cfg.optimizer is not None:
+            self.optimizer.zero_grad()
 
     def lr_step_begin_epoch(self, epoch):
         """Adjust the learning rate at the beginning of the epoch."""
