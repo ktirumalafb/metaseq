@@ -11,6 +11,14 @@ import torch.nn.functional as F
 from metaseq import metrics, utils
 from metaseq.criterions import BaseCriterion, register_criterion
 
+from metaseq.distributed import utils as dist_utils
+
+import logging
+
+import json
+
+logger = logging.getLogger(__name__)
+
 
 def nll_loss(lprobs, target, ignore_index=None, reduction="mean"):
     """Like torch.nn.functional.nll_loss but works for large inputs."""
@@ -50,7 +58,13 @@ class CrossEntropyCriterion(BaseCriterion):
         2) the sample size, which is used as the denominator for the gradient
         3) logging outputs to display while training
         """
+        #logger.info(str(sample))
         net_output = model(**sample["net_input"])
+
+        np = model.get_normalized_probs(net_output, log_probs=True)
+        targets = sample["target"]
+        target_log_probs = torch.gather(np, 2, targets.unsqueeze(2)).squeeze(2)
+
         loss, _ = self.compute_loss(model, net_output, sample, reduce=reduce)
         sample_size = sample["ntokens"]
         logging_output = {
@@ -82,6 +96,11 @@ class CrossEntropyCriterion(BaseCriterion):
                     logging_output[f"{key}_norm"] = value.norm(p=2, dim=-1).sum(
                         dtype=torch.float32
                     )
+
+        #top_probs, top_tokens = torch.topk(np, 5, dim=2)
+
+        logging_output["targets"] = targets
+        logging_output["log_probs"] = target_log_probs
 
         return loss, sample_size, logging_output
 
@@ -125,6 +144,22 @@ class CrossEntropyCriterion(BaseCriterion):
             metrics.log_derived(
                 "ppl", lambda meters: utils.get_perplexity(meters["loss"].avg)
             )
+
+        def serialize_tensor(t):
+            return t.cpu().detach().numpy().tolist()
+
+
+        with open("/private/home/danielsimig/metaseq-internal/logging_test_wiki.jsonl", "a") as f:
+            for logging_output in logging_outputs:
+                batch_size = logging_output["targets"].shape[0]
+                for i in range(batch_size):
+                    log_line = {
+                        "t":  serialize_tensor(logging_output["targets"][i]),
+                        "p":  serialize_tensor(logging_output["log_probs"][i]),
+                    }
+                    f.write(json.dumps(log_line) + "\n")
+        logger.info("WRITE")
+                
 
     @staticmethod
     def logging_outputs_can_be_summed() -> bool:
