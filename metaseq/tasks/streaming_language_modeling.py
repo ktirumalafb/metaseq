@@ -100,6 +100,10 @@ class StreamingLanguageModelingConfig(MetaseqDataclass):
             "Subsharding allows us to virtually split the dataset to speed up dataset fast forwarding."
         },
     )
+    consider_highest_loss: Optional[bool] = field(
+        default=False,
+        metadata={"help": "if true, this will only take the highest loss in a batch to do gradient descent"},
+    )
 
     # TODO common vars below add to parent
     seed: int = II("common.seed")
@@ -167,6 +171,9 @@ class StreamingLanguageModelingTask(LegacyTask):
             self.dictionary.pad_to_multiple_(final_vocab_size)
         else:
             self.dictionary.pad_to_multiple_(8)
+
+        # Add reduce loss by highest to self properties
+        self.reduce_loss = (not self.args.consider_highest_loss)
 
         # confirm that metaseq dictionary and BPE have matching special symbols
         assert self.dictionary.bos_index == 0

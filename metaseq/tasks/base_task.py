@@ -397,7 +397,7 @@ class BaseTask(object):
         model.train()
         model.set_num_updates(update_num)
         with torch.autograd.profiler.record_function("forward"):
-            loss, sample_size, logging_output = criterion(model, sample)
+            loss, sample_size, logging_output = criterion(model, sample, reduce=self.reduce_loss)
         if ignore_grad:
             loss *= 0
         with torch.autograd.profiler.record_function("backward"):

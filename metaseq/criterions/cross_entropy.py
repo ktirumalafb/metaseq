@@ -95,6 +95,9 @@ class CrossEntropyCriterion(BaseCriterion):
             ignore_index=self.padding_idx,
             reduction="sum" if reduce else "none",
         )
+        if not reduce:
+            n = loss.shape[0]
+            loss = n*torch.max(loss)
         return loss, loss
 
     @staticmethod
