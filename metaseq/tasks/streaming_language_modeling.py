@@ -24,6 +24,7 @@ from metaseq.data import (
     StreamingShuffleDataset,
     StreamingTokenBlockDataset,
     StreamingSrcTgtDataset,
+    FilterDataset,
     data_utils,
     iterators,
 )
@@ -91,6 +92,37 @@ class StreamingLanguageModelingConfig(MetaseqDataclass):
         metadata={"help": "Maximum size for example proportional sampling"},
     )
 
+    # Flags for COMPUTING per-document metrics
+    compute_data_pruning_metrics: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "Name of metrics being used for data pruning (comma-separated list)"
+        },
+    )
+
+    compute_data_pruning_metrics_savedir: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "Directory to save all compute data pruning metrics"
+        }
+    )
+
+    # Flags for USING computed metrics to prune training data
+    use_data_pruning_metrics: Optional[bool] = field(
+        default=False,
+        metadata={"help": "Prune data using precomputed metrics, defined with flag `prune_data_metrics_filepath`"},
+    )
+
+    use_data_pruning_metrics_filepath: Optional[str] = field(
+        default=None,
+        metadata={"help": "Filepath containing per-document metrics that represent document difficulty"},
+    )
+
+    use_data_pruning_metrics_frac_data: Optional[float] = field(
+        default=1.0,
+        metadata={"help": "What fraction of training data to keep with data pruning"},
+    )
+
     # TODO common vars below add to parent
     seed: int = II("common.seed")
     batch_size: Optional[int] = II("dataset.batch_size")
@@ -154,6 +186,21 @@ class StreamingLanguageModelingTask(LegacyTask):
             self.dictionary.pad_to_multiple_(final_vocab_size)
         else:
             self.dictionary.pad_to_multiple_(8)
+
+        
+        # Data pruning flags
+        use_data_pruning_metrics = self.args.use_data_pruning_metrics
+        compute_data_pruning_metrics = self.args.compute_data_pruning_metrics is not None
+
+        assert use_data_pruning_metrics != compute_data_pruning_metrics, "Error: only one of `--use-data-pruning-metrics` and `--compute-data-pruning-metrics` should be true"
+
+        if compute_data_pruning_metrics:
+            self.data_pruning_metrics = self.args.data_pruning_metrics.split(",")
+            self.data_pruning_savedir = self.args.data_pruning_savedir
+        else:
+            assert self.args.use_data_pruning_metrics_filepath is not None, "Please specify filepath to computed metrics via `--use-data-pruning-metrics-filepath`"
+            self.use_data_pruning_metrics_filepath = self.args.use_data_pruning_metrics_filepath
+            self.use_data_pruning_metrics_frac_data = self.args.use_data_pruning_metrics_frac_data
 
         # confirm that metaseq dictionary and BPE have matching special symbols
         assert self.dictionary.bos_index == 0
@@ -296,6 +343,11 @@ class StreamingLanguageModelingTask(LegacyTask):
 
         # concatenate any jsonl files that are part of the shard
         datasets, corpora = [], []
+
+        # maintain index of dataset name path, to index
+        dataset_name_to_index = {}
+        dataset_index_counter = 0
+        
         for file in sorted(
             os.listdir(os.path.join(self.args.data, split, cur_shard_str))
         ):
@@ -308,12 +360,34 @@ class StreamingLanguageModelingTask(LegacyTask):
                 )
             )
             corpora.append(os.path.splitext(file)[0])
+
+            dataset_name_to_index[os.path.join(self.args.data, split, cur_shard_str, file)] = dataset_index_counter
+            dataset_index_counter += 1
+
         assert len(datasets) > 0
 
         if self.args.multicorpus_sampling_alpha != 1:
             datasets = self._alpha_sampling(datasets, corpora, epoch)
 
         dataset = torch.utils.data.ConcatDataset(datasets)
+
+        # Filter by metric (only on train dataset)
+        if split == "train" and self.args.use_data_pruning_metrics:
+            # This method should only be called *once* when we 
+            # are processing the combined `train` dataset
+            metric_df = FilterDataset.retrieve_metric_df(
+                metric_file=self.args.use_data_pruning_metrics_filepath,
+                dataset_name_to_index=dataset_name_to_index
+            )
+            if len(metric_df) >= len(dataset):
+                # If len(metric_df) < len(dataset), then not every
+                # document has a computed metric, so we should not
+                # be pruning
+                dataset = FilterDataset(
+                    dataset, 
+                    frac_data=self.args.use_data_pruning_metrics_frac_data, 
+                    metric_data=metric_df
+                )
 
         # shuffle order across epochs
         dataset = StreamingShuffleDataset(dataset, seed=self.args.seed)

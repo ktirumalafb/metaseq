@@ -16,6 +16,8 @@ from metaseq.distributed import utils as dist_utils
 import logging
 
 import json
+import numpy as np
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -98,9 +100,9 @@ class CrossEntropyCriterion(BaseCriterion):
                     )
 
         #top_probs, top_tokens = torch.topk(np, 5, dim=2)
-
         logging_output["targets"] = targets
         logging_output["log_probs"] = target_log_probs
+        logging_output["final_embedding"] = actv.transpose(0,1)
 
         return loss, sample_size, logging_output
 
@@ -117,7 +119,7 @@ class CrossEntropyCriterion(BaseCriterion):
         return loss, loss
 
     @staticmethod
-    def reduce_metrics(logging_outputs) -> None:
+    def reduce_metrics(logging_outputs, data_pruning_metrics=None, data_pruning_metrics_savedir=None) -> None:
         """Aggregate logging outputs from data parallel training."""
         loss_sum = sum(log.get("loss", 0) for log in logging_outputs)
         ntokens = sum(log.get("ntokens", 0) for log in logging_outputs)
@@ -148,17 +150,45 @@ class CrossEntropyCriterion(BaseCriterion):
         def serialize_tensor(t):
             return t.cpu().detach().numpy().tolist()
 
+        def serialize_tensor_to_numpy(t):
+            return t.cpu().detach().numpy()
 
-        with open("/private/home/danielsimig/metaseq-internal/logging_test_wiki.jsonl", "a") as f:
-            for logging_output in logging_outputs:
-                batch_size = logging_output["targets"].shape[0]
-                for i in range(batch_size):
-                    log_line = {
-                        "t":  serialize_tensor(logging_output["targets"][i]),
-                        "p":  serialize_tensor(logging_output["log_probs"][i]),
-                    }
-                    f.write(json.dumps(log_line) + "\n")
-        logger.info("WRITE")
+
+        if data_pruning_metrics:
+            if "ppl" in data_pruning_metrics:
+                with open(f"{data_pruning_metrics_savedir}/ppl_output.json", "a") as f:
+                    for logging_output in logging_outputs:
+                        batch_size = logging_output["targets"].shape[0]
+                        for i in range(batch_size):
+                            log_line = {
+                                "t":  serialize_tensor(logging_output["targets"][i]),
+                                "p":  serialize_tensor(logging_output["log_probs"][i]),
+                            }
+                            f.write(json.dumps(log_line) + "\n")
+                logger.info("Done writing ppl info!")
+
+
+            if "ssl_prototypes" in data_pruning_metrics:
+                counter = 0
+                hash_to_add = hash(logging_output["targets"])
+
+                if not os.path.isdir(f"{data_pruning_metrics_savedir}/ssl_embeddings"):
+                    os.mkdir(f"{data_pruning_metrics_savedir}/ssl_embeddings")
+
+                for logging_output in logging_outputs:
+                    batch_size = logging_output["targets"].shape[0]
+                    for i in range(batch_size):
+
+                        with open(f"{data_pruning_metrics_savedir}/ssl_embeddings/{counter}_emb_{hash_to_add}.npy", "wb") as embedding_out_f:
+                            serialized_embedding = serialize_tensor_to_numpy(logging_output["final_embedding"][i])
+                            np.save(embedding_out_f, serialized_embedding)
+                        with open(f"{data_pruning_metrics_savedir}/ssl_embeddings/{counter}_targ_{hash_to_add}.npy", "wb") as target_out_f:
+                            serialized_target = serialize_tensor_to_numpy(logging_output["targets"][i])
+                            np.save(target_out_f, serialized_target)
+
+                        counter += 1
+
+                logger.info("Done writing embedding info!")
                 
 
     @staticmethod

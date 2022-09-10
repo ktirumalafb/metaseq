@@ -10,6 +10,7 @@ import logging
 import os
 import re
 import traceback
+import numpy as np
 from glob import glob
 from typing import Any, Dict, List, Optional
 
@@ -495,8 +496,8 @@ def load_model_ensemble_and_task(
 
             logger.info(f"CFG -------->>>>>>>>>>> {cfg.model}")
             
-            cfg.task.merges_filename = "/large_experiments/xlmg/data/gptz/tokenizers/gpt2-merges.txt"
-            cfg.task.vocab_filename = "/large_experiments/xlmg/data/gptz/tokenizers/gpt2-vocab.json"
+            cfg.task.merges_filename = "/datasets01/gptz_corpus_dedup_10_10_1_0.05_exp29/120321/tokenizers/gpt2-merges.txt"
+            cfg.task.vocab_filename = "/datasets01/gptz_corpus_dedup_10_10_1_0.05_exp29/120321/tokenizers/gpt2-vocab.json"
             cfg.model.model_parallel_size = 1
             cfg.common.model_parallel_size = 1
 
@@ -517,6 +518,7 @@ def load_model_ensemble_and_task(
             state["model"][oproj_key] = state["model"][emb_key]
 
             model.load_state_dict(state["model"], strict=strict, model_cfg=cfg.model)
+
             logger.info("Done loading state dict")
             # reset state so it gets loaded for the next model in ensemble
             state = None
