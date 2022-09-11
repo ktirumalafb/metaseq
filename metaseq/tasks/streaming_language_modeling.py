@@ -379,7 +379,9 @@ class StreamingLanguageModelingTask(LegacyTask):
                 metric_file=self.args.use_data_pruning_metrics_filepath,
                 dataset_name_to_index=dataset_name_to_index
             )
-            if len(metric_df) >= len(dataset):
+            n_metric_df = len(metric_df)
+            if n_metric_df >= len(dataset):
+                logger.info(f"Filtering data points - length of metric df: {n_metric_df}")
                 # If len(metric_df) < len(dataset), then not every
                 # document has a computed metric, so we should not
                 # be pruning
