@@ -195,8 +195,8 @@ class StreamingLanguageModelingTask(LegacyTask):
         assert use_data_pruning_metrics != compute_data_pruning_metrics, "Error: only one of `--use-data-pruning-metrics` and `--compute-data-pruning-metrics` should be true"
 
         if compute_data_pruning_metrics:
-            self.data_pruning_metrics = self.args.data_pruning_metrics.split(",")
-            self.data_pruning_savedir = self.args.data_pruning_savedir
+            self.data_pruning_metrics = self.args.compute_data_pruning_metrics.split(",")
+            self.data_pruning_savedir = self.args.compute_data_pruning_metrics_savedir
         else:
             assert self.args.use_data_pruning_metrics_filepath is not None, "Please specify filepath to computed metrics via `--use-data-pruning-metrics-filepath`"
             self.use_data_pruning_metrics_filepath = self.args.use_data_pruning_metrics_filepath

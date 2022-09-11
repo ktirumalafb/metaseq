@@ -153,7 +153,6 @@ class CrossEntropyCriterion(BaseCriterion):
         def serialize_tensor_to_numpy(t):
             return t.cpu().detach().numpy()
 
-
         if data_pruning_metrics:
             if "ppl" in data_pruning_metrics:
                 with open(f"{data_pruning_metrics_savedir}/ppl_output.json", "a") as f:
@@ -189,7 +188,7 @@ class CrossEntropyCriterion(BaseCriterion):
                         counter += 1
 
                 logger.info("Done writing embedding info!")
-                
+    
 
     @staticmethod
     def logging_outputs_can_be_summed() -> bool:

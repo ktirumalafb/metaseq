@@ -484,7 +484,7 @@ class BaseTask(object):
             metrics.log_scalar("bsz", nsentences, priority=190, round=1)
 
         # This should only be activated if we are doing data pruning for language modeling evaluation
-        if self.args._name == "streaming_language_modeling" and 'data_pruning_metrics' in self.args:
+        if self.args._name == "streaming_language_modeling" and 'compute_data_pruning_metrics' in self.args:
             criterion.__class__.reduce_metrics(logging_outputs, self.data_pruning_metrics, self.data_pruning_savedir)
         else:
             criterion.__class__.reduce_metrics(logging_outputs)
