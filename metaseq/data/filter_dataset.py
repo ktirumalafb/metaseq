@@ -45,8 +45,8 @@ class FilterDataset(BaseWrapperDataset):
         limit = int(np.ceil(len(self.dataset) * self.frac_data))
         self.length = limit
 
-        df_final.sort_values('metric', inplace=True, ascending=False)
-        self.df_final = df_final[:limit]
+        self.metric_data.sort_values('metric', inplace=True, ascending=False)
+        self.df_final = self.metric_data[:limit]
 
     @staticmethod
     def retrieve_metric_df(metric_file, dataset_name_to_index):

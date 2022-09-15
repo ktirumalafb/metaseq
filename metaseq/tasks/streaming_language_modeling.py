@@ -192,15 +192,17 @@ class StreamingLanguageModelingTask(LegacyTask):
         use_data_pruning_metrics = self.args.use_data_pruning_metrics
         compute_data_pruning_metrics = self.args.compute_data_pruning_metrics is not None
 
-        assert use_data_pruning_metrics != compute_data_pruning_metrics, "Error: only one of `--use-data-pruning-metrics` and `--compute-data-pruning-metrics` should be true"
+        # If one of these flags are turned on, the other must be turned off
+        if (use_data_pruning_metrics) or (compute_data_pruning_metrics):
+            assert use_data_pruning_metrics != compute_data_pruning_metrics, "Error: only one of `--use-data-pruning-metrics` and `--compute-data-pruning-metrics` should be true"
 
-        if compute_data_pruning_metrics:
-            self.data_pruning_metrics = self.args.compute_data_pruning_metrics.split(",")
-            self.data_pruning_savedir = self.args.compute_data_pruning_metrics_savedir
-        else:
-            assert self.args.use_data_pruning_metrics_filepath is not None, "Please specify filepath to computed metrics via `--use-data-pruning-metrics-filepath`"
-            self.use_data_pruning_metrics_filepath = self.args.use_data_pruning_metrics_filepath
-            self.use_data_pruning_metrics_frac_data = self.args.use_data_pruning_metrics_frac_data
+            if compute_data_pruning_metrics:
+                self.data_pruning_metrics = self.args.compute_data_pruning_metrics.split(",")
+                self.data_pruning_savedir = self.args.compute_data_pruning_metrics_savedir
+            else:
+                assert self.args.use_data_pruning_metrics_filepath is not None, "Please specify filepath to computed metrics via `--use-data-pruning-metrics-filepath`"
+                self.use_data_pruning_metrics_filepath = self.args.use_data_pruning_metrics_filepath
+                self.use_data_pruning_metrics_frac_data = self.args.use_data_pruning_metrics_frac_data
 
         # confirm that metaseq dictionary and BPE have matching special symbols
         assert self.dictionary.bos_index == 0
@@ -380,16 +382,15 @@ class StreamingLanguageModelingTask(LegacyTask):
                 dataset_name_to_index=dataset_name_to_index
             )
             n_metric_df = len(metric_df)
-            if n_metric_df >= len(dataset):
-                logger.info(f"Filtering data points - length of metric df: {n_metric_df}")
-                # If len(metric_df) < len(dataset), then not every
-                # document has a computed metric, so we should not
-                # be pruning
-                dataset = FilterDataset(
-                    dataset, 
-                    frac_data=self.args.use_data_pruning_metrics_frac_data, 
-                    metric_data=metric_df
-                )
+            logger.info(f"Filtering data points - length of metric df: {n_metric_df}")
+            # If len(metric_df) < len(dataset), then not every
+            # document has a computed metric, so we should not
+            # be pruning
+            dataset = FilterDataset(
+                dataset, 
+                frac_data=self.args.use_data_pruning_metrics_frac_data, 
+                metric_data=metric_df
+            )
 
         # shuffle order across epochs
         dataset = StreamingShuffleDataset(dataset, seed=self.args.seed)
