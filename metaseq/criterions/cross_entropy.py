@@ -17,6 +17,8 @@ import logging
 
 import json
 
+import os
+
 logger = logging.getLogger(__name__)
 
 
@@ -49,6 +51,14 @@ def nll_loss(lprobs, target, ignore_index=None, reduction="mean"):
 class CrossEntropyCriterion(BaseCriterion):
     def __init__(self, task):
         super().__init__(task)
+        self.log_file = task.args.log_file
+        logger.info(f"Logging to {self.log_file}")
+
+        try:
+            os.remove(self.log_file)
+            logger.info(f"Overwriting previous file: {self.log_file}")
+        except FileNotFoundError:
+            pass
 
     def forward(self, model, sample, reduce=True):
         """Compute the loss for the given sample.
@@ -101,6 +111,7 @@ class CrossEntropyCriterion(BaseCriterion):
 
         logging_output["targets"] = targets
         logging_output["log_probs"] = target_log_probs
+        logging_output["id"] = sample["id"]
 
         return loss, sample_size, logging_output
 
@@ -116,8 +127,8 @@ class CrossEntropyCriterion(BaseCriterion):
         )
         return loss, loss
 
-    @staticmethod
-    def reduce_metrics(logging_outputs) -> None:
+    #@staticmethod
+    def reduce_metrics(self, logging_outputs) -> None:
         """Aggregate logging outputs from data parallel training."""
         loss_sum = sum(log.get("loss", 0) for log in logging_outputs)
         ntokens = sum(log.get("ntokens", 0) for log in logging_outputs)
@@ -145,21 +156,23 @@ class CrossEntropyCriterion(BaseCriterion):
                 "ppl", lambda meters: utils.get_perplexity(meters["loss"].avg)
             )
 
-        def serialize_tensor(t):
-            return t.cpu().detach().numpy().tolist()
+        def serialize_tensor(t, multiplier=1):
+            return [int(x * multiplier) for x in t.cpu().detach().numpy().tolist()]
 
-
-        with open("/private/home/danielsimig/metaseq-internal/logging_test_wiki.jsonl", "a") as f:
+        output_file = self.log_file
+        line_cnt = 0
+        with open(output_file, "a") as f:
             for logging_output in logging_outputs:
                 batch_size = logging_output["targets"].shape[0]
                 for i in range(batch_size):
                     log_line = {
+                        "id": int(logging_output["id"][i]),
                         "t":  serialize_tensor(logging_output["targets"][i]),
-                        "p":  serialize_tensor(logging_output["log_probs"][i]),
+                        "p":  serialize_tensor(logging_output["log_probs"][i], multiplier=100),
                     }
                     f.write(json.dumps(log_line) + "\n")
-        logger.info("WRITE")
-                
+                    line_cnt += 1
+        #logger.info(f"Wrote {line_cnt} lines to {output_file}")
 
     @staticmethod
     def logging_outputs_can_be_summed() -> bool:

@@ -492,13 +492,13 @@ def load_model_ensemble_and_task(
                 emb_key = "decoder.embed_tokens.weight"
                 if emb_key in state["model"] and oproj_key not in state["model"]:
                     state["model"][oproj_key] = state["model"][emb_key]
-
-            logger.info(f"CFG -------->>>>>>>>>>> {cfg.model}")
             
-            cfg.task.merges_filename = "/large_experiments/xlmg/data/gptz/tokenizers/gpt2-merges.txt"
-            cfg.task.vocab_filename = "/large_experiments/xlmg/data/gptz/tokenizers/gpt2-vocab.json"
+            cfg.task.merges_filename = "/datasets01/gptz_corpus_dedup_10_10_1_0.05_exp29/120321/tokenizers/gpt2-merges.txt"
+            cfg.task.vocab_filename = "/datasets01/gptz_corpus_dedup_10_10_1_0.05_exp29/120321/tokenizers/gpt2-vocab.json"
             cfg.model.model_parallel_size = 1
             cfg.common.model_parallel_size = 1
+
+            logger.info(f"CFG -------->>>>>>>>>>> {cfg.model}")
 
             if task is None:
                 task = tasks.setup_task(cfg.task)
