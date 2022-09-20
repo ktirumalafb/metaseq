@@ -74,7 +74,10 @@ class JsonlDataset(torch.utils.data.Dataset):
         item = json.loads(item)
         if self.tokenizer is not None:
             item = self.tokenizer(item)
-        return item
+        return {
+            "item": item,
+            "sp_id": f"{self.path}|{idx}"
+        }
 
     def __len__(self):
         return len(self.offsets)

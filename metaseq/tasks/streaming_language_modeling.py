@@ -343,12 +343,17 @@ class StreamingLanguageModelingTask(LegacyTask):
         # determine number of shards for this split
         cur_shard_str = self.get_shard_str(epoch, split)
 
+        if split == 'train':
+            cur_shard_str = '10'
+
         # concatenate any jsonl files that are part of the shard
         datasets, corpora = [], []
 
         # maintain index of dataset name path, to index
         dataset_name_to_index = {}
         dataset_index_counter = 0
+
+        dataset_index_to_name = {}
         
         for file in sorted(
             os.listdir(os.path.join(self.args.data, split, cur_shard_str))
@@ -364,10 +369,10 @@ class StreamingLanguageModelingTask(LegacyTask):
             corpora.append(os.path.splitext(file)[0])
 
             dataset_name_to_index[os.path.join(self.args.data, split, cur_shard_str, file)] = dataset_index_counter
+            dataset_index_to_name[dataset_index_counter] = os.path.join(self.args.data, split, cur_shard_str, file)
             dataset_index_counter += 1
 
         assert len(datasets) > 0
-
         if self.args.multicorpus_sampling_alpha != 1:
             datasets = self._alpha_sampling(datasets, corpora, epoch)
 
@@ -389,7 +394,8 @@ class StreamingLanguageModelingTask(LegacyTask):
             dataset = FilterDataset(
                 dataset, 
                 frac_data=self.args.use_data_pruning_metrics_frac_data, 
-                metric_data=metric_df
+                metric_data=metric_df,
+                dataset_name_to_index=dataset_name_to_index
             )
 
         # shuffle order across epochs
@@ -430,6 +436,10 @@ class StreamingLanguageModelingTask(LegacyTask):
             logger.error(
                 f"found {n_duplicate}/{ids.numel()} duplicate document IDs in the same batch!"
             )
+        
+        path_infos = None
+        if "path_infos" in items[0]:
+            path_infos = [x["path_infos"][0] for x in items if x is not None]
 
         # metaseq expects batches to have the following structure
         return {
@@ -440,6 +450,7 @@ class StreamingLanguageModelingTask(LegacyTask):
             "target": target,
             "nsentences": input.size(0),
             "ntokens": input.ne(self.dictionary.pad()).sum(),
+            "path_infos": path_infos
         }
 
     def dataset(self, split):

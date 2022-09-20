@@ -60,7 +60,6 @@ class CrossEntropyCriterion(BaseCriterion):
         2) the sample size, which is used as the denominator for the gradient
         3) logging outputs to display while training
         """
-        #logger.info(str(sample))
         net_output = model(**sample["net_input"])
 
         np = model.get_normalized_probs(net_output, log_probs=True)
@@ -102,7 +101,9 @@ class CrossEntropyCriterion(BaseCriterion):
         #top_probs, top_tokens = torch.topk(np, 5, dim=2)
         logging_output["targets"] = targets
         logging_output["log_probs"] = target_log_probs
-        logging_output["final_embedding"] = actv.transpose(0,1)
+        
+        logging_output["path_infos"] = sample["path_infos"]
+        # logging_output["final_embedding"] = actv.transpose(0,1)
 
         return loss, sample_size, logging_output
 
@@ -130,7 +131,7 @@ class CrossEntropyCriterion(BaseCriterion):
             if any(key in log for log in logging_outputs):
                 actv_norm = sum(log.get(key, 0) for log in logging_outputs)
                 metrics.log_scalar(key, actv_norm / ntokens, round=3)
-
+        
         # we divide by log(2) to convert the loss from base e to base 2
         metrics.log_scalar(
             "loss", loss_sum / sample_size / math.log(2), sample_size, round=3
@@ -162,6 +163,7 @@ class CrossEntropyCriterion(BaseCriterion):
                             log_line = {
                                 "t":  serialize_tensor(logging_output["targets"][i]),
                                 "p":  serialize_tensor(logging_output["log_probs"][i]),
+                                "path_info": logging_output["path_infos"][i],
                             }
                             f.write(json.dumps(log_line) + "\n")
                 logger.info("Done writing ppl info!")
@@ -174,20 +176,29 @@ class CrossEntropyCriterion(BaseCriterion):
                 if not os.path.isdir(f"{data_pruning_metrics_savedir}/ssl_embeddings"):
                     os.mkdir(f"{data_pruning_metrics_savedir}/ssl_embeddings")
 
-                for logging_output in logging_outputs:
-                    batch_size = logging_output["targets"].shape[0]
-                    for i in range(batch_size):
+                with open(f"{data_pruning_metrics_savedir}/ssl_embeddings/index.json", "a") as f_index_out:
 
-                        with open(f"{data_pruning_metrics_savedir}/ssl_embeddings/{counter}_emb_{hash_to_add}.npy", "wb") as embedding_out_f:
-                            serialized_embedding = serialize_tensor_to_numpy(logging_output["final_embedding"][i])
-                            np.save(embedding_out_f, serialized_embedding)
-                        with open(f"{data_pruning_metrics_savedir}/ssl_embeddings/{counter}_targ_{hash_to_add}.npy", "wb") as target_out_f:
-                            serialized_target = serialize_tensor_to_numpy(logging_output["targets"][i])
-                            np.save(target_out_f, serialized_target)
+                    for logging_output in logging_outputs:
+                        batch_size = logging_output["targets"].shape[0]
+                        for i in range(batch_size):
 
-                        counter += 1
+                            with open(f"{data_pruning_metrics_savedir}/ssl_embeddings/{counter}_emb_{hash_to_add}.npy", "wb") as embedding_out_f:
+                                serialized_embedding = serialize_tensor_to_numpy(logging_output["final_embedding"][i])
+                                np.save(embedding_out_f, serialized_embedding)
 
-                logger.info("Done writing embedding info!")
+                                log_line = {
+                                    "name":  f"{data_pruning_metrics_savedir}/ssl_embeddings/{counter}_emb_{hash_to_add}.npy",
+                                    "path_info": logging_output["path_infos"][i],
+                                }
+                                f_index_out.write(json.dumps(log_line) + "\n")
+                            # with open(f"{data_pruning_metrics_savedir}/ssl_embeddings/{counter}_targ_{hash_to_add}.npy", "wb") as target_out_f:
+                            #     serialized_target = serialize_tensor_to_numpy(logging_output["targets"][i])
+                            #     np.save(target_out_f, serialized_target)
+
+                            counter += 1
+
+
+                    logger.info("Done writing embedding info!")
     
 
     @staticmethod

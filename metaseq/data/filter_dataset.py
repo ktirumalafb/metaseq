@@ -34,33 +34,40 @@ class FilterDataset(BaseWrapperDataset):
 
     """
 
-    def __init__(self, dataset, frac_data, metric_data):
+    def __init__(self, dataset, frac_data, metric_data, dataset_name_to_index):
         super().__init__(dataset)
         assert 0.0 <= frac_data <= 1.0
         self.frac_data = frac_data
-        self.dataset = dataset
+        self.concat_dataset = dataset
         self.metric_data = metric_data
 
         # This means we should not be pruning, because not enough datapoints have a computed metric
-        limit = int(np.ceil(len(self.dataset) * self.frac_data))
+        limit = int(np.ceil(len(self.concat_dataset) * self.frac_data))
         self.length = limit
 
         self.metric_data.sort_values('metric', inplace=True, ascending=False)
         self.df_final = self.metric_data[:limit]
 
+        self.dataset_name_to_index = dataset_name_to_index
+
     @staticmethod
     def retrieve_metric_df(metric_file, dataset_name_to_index):
         assert PathManager.exists(metric_file), "Error! Provided `metric_file` is not a valid filepath"
         assert PathManager.isfile(metric_file), "Error! Provided `metric_file` is not a valid file"
-        assert metric_file.endswith(".jsonl"), "Error! `metric_file` must be a `jsonl` file"
+        assert metric_file.endswith(".jsonl") or metric_file.endswith(".csv"), "Error! `metric_file` must be a `jsonl` file"
 
-        with open(metric_file, "r") as f:
-            lines = f.read().splitlines()
+        if metric_file.endswith(".jsonl"):
+            with open(metric_file, "r") as f:
+                lines = f.read().splitlines()
 
-        df = pd.DataFrame(lines)
-        df.columns = ['temp']
-        df['temp'].apply(json.loads)
-        df = pd.json_normalize(df['temp'].apply(json.loads))
+            df = pd.DataFrame(lines)
+            df.columns = ['temp']
+            df['temp'].apply(json.loads)
+            df = pd.json_normalize(df['temp'].apply(json.loads))
+
+        elif metric_file.endswith(".csv"):
+            df = pd.read_csv(metric_file)
+
         return df
 
     def __getitem__(self, index):
@@ -70,10 +77,10 @@ class FilterDataset(BaseWrapperDataset):
         dataset_name = str(metadata["name"])
         sample_idx = int(metadata["index"])
 
-        assert dataset_name in dataset_name_to_index, f"Error: dataset path {dataset_name} not in dataset_index"
-        dataset_index = dataset_name_to_index[str(metadata["name"])]
+        assert dataset_name in self.dataset_name_to_index, f"Error: dataset path {dataset_name} not in dataset_index"
+        dataset_index = self.dataset_name_to_index[str(metadata["name"])]
 
-        return self.datasets[dataset_index][sample_idx]
+        return self.concat_dataset.datasets[dataset_index][sample_idx]
 
     def __len__(self):
         return self.length
