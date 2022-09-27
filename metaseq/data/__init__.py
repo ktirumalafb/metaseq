@@ -36,6 +36,7 @@ from .token_block_dataset import TokenBlockDataset
 from .pad_dataset import MultiplePadDataset
 from .shorten_dataset import TruncateDataset
 from .filter_dataset import FilterDataset
+from .random_prune_dataset import RandomPruneDataset
 
 from .iterators import (
     CountingIterator,

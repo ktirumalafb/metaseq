@@ -19,6 +19,8 @@ import json
 import numpy as np
 import os
 
+import time
+
 logger = logging.getLogger(__name__)
 
 
@@ -103,7 +105,15 @@ class CrossEntropyCriterion(BaseCriterion):
         logging_output["log_probs"] = target_log_probs
         
         logging_output["path_infos"] = sample["path_infos"]
-        # logging_output["final_embedding"] = actv.transpose(0,1)
+        logging_output["final_embedding"] = actv.transpose(0,1)
+
+        # compute el2n score
+        nsentences = sample["target"].size(0)
+        loss_vector, _ = self.compute_loss(model, net_output, sample, reduce=False)
+        loss_vector = loss_vector.reshape((nsentences,-1))
+
+        # 2 norm of loss vector
+        logging_output["el2n_score"] = torch.linalg.norm(loss_vector, dim=1)
 
         return loss, sample_size, logging_output
 
@@ -171,7 +181,11 @@ class CrossEntropyCriterion(BaseCriterion):
 
             if "ssl_prototypes" in data_pruning_metrics:
                 counter = 0
-                hash_to_add = hash(logging_output["targets"])
+                hash_targets = hash(logging_output["targets"])
+                hash_path_infos = hash("".join(logging_output["path_infos"]))
+
+                hash_to_add = str(hash_targets) + "" + str(hash_path_infos)
+
 
                 if not os.path.isdir(f"{data_pruning_metrics_savedir}/ssl_embeddings"):
                     os.mkdir(f"{data_pruning_metrics_savedir}/ssl_embeddings")
@@ -199,6 +213,18 @@ class CrossEntropyCriterion(BaseCriterion):
 
 
                     logger.info("Done writing embedding info!")
+
+            if "el2n" in data_pruning_metrics:
+                with open(f"{data_pruning_metrics_savedir}/el2n.json", "a") as f:
+                    for logging_output in logging_outputs:
+                        batch_size = logging_output["targets"].shape[0]
+                        for i in range(batch_size):
+                            log_line = {
+                                "path_info": logging_output["path_infos"][i],
+                                "el2n_metric": logging_output["el2n_score"][i].item()
+                            }
+                            f.write(json.dumps(log_line) + "\n")
+                logger.info("Done writing el2n info!")
     
 
     @staticmethod

@@ -25,6 +25,7 @@ from metaseq.data import (
     StreamingTokenBlockDataset,
     StreamingSrcTgtDataset,
     FilterDataset,
+    RandomPruneDataset,
     data_utils,
     iterators,
 )
@@ -382,21 +383,31 @@ class StreamingLanguageModelingTask(LegacyTask):
         if split == "train" and self.args.use_data_pruning_metrics:
             # This method should only be called *once* when we 
             # are processing the combined `train` dataset
-            metric_df = FilterDataset.retrieve_metric_df(
-                metric_file=self.args.use_data_pruning_metrics_filepath,
-                dataset_name_to_index=dataset_name_to_index
-            )
-            n_metric_df = len(metric_df)
-            logger.info(f"Filtering data points - length of metric df: {n_metric_df}")
-            # If len(metric_df) < len(dataset), then not every
-            # document has a computed metric, so we should not
-            # be pruning
-            dataset = FilterDataset(
-                dataset, 
-                frac_data=self.args.use_data_pruning_metrics_frac_data, 
-                metric_data=metric_df,
-                dataset_name_to_index=dataset_name_to_index
-            )
+
+            if self.args.use_data_pruning_metrics_filepath == "random":
+                logger.info(f"Retrieving random dataset")
+                dataset = RandomPruneDataset(
+                    dataset=dataset, 
+                    seed=self.args.seed, 
+                    frac_data=self.args.use_data_pruning_metrics_frac_data)
+            else:
+                metric_df = FilterDataset.retrieve_metric_df(
+                    metric_file=self.args.use_data_pruning_metrics_filepath,
+                    dataset_name_to_index=dataset_name_to_index
+                )
+                n_metric_df = len(metric_df)
+                logger.info(f"Filtering data points - length of metric df: {n_metric_df}")
+                # If len(metric_df) < len(dataset), then not every
+                # document has a computed metric, so we should not
+                # be pruning
+                dataset = FilterDataset(
+                    dataset, 
+                    frac_data=self.args.use_data_pruning_metrics_frac_data, 
+                    metric_data=metric_df,
+                    dataset_name_to_index=dataset_name_to_index
+                )
+            new_len_dataset = len(dataset)
+            logger.info(f"Length of new dataset is: {new_len_dataset}")
 
         # shuffle order across epochs
         dataset = StreamingShuffleDataset(dataset, seed=self.args.seed)
@@ -415,6 +426,9 @@ class StreamingLanguageModelingTask(LegacyTask):
             # from the seed used above in StreamingShuffleDataset
             seed=1284 + self.args.seed,
         )
+
+        split_path = os.path.join(self.args.data, split, cur_shard_str)
+        logger.info("loaded {} blocks from: {}".format(len(dataset), split_path))
 
     def _collate_fn(self, items: List[Dict[str, Any]]):
         # StreamingTokenBlockDataset returns None as filler

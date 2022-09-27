@@ -46,7 +46,7 @@ class FilterDataset(BaseWrapperDataset):
         self.length = limit
 
         self.metric_data.sort_values('metric', inplace=True, ascending=False)
-        self.df_final = self.metric_data[:limit]
+        self.metric_data = self.metric_data[:limit]
 
         self.dataset_name_to_index = dataset_name_to_index
 
@@ -71,7 +71,7 @@ class FilterDataset(BaseWrapperDataset):
         return df
 
     def __getitem__(self, index):
-        assert 0 <= index <= self.length
+        assert 0 <= index < self.length
 
         metadata = self.metric_data.iloc[index]
         dataset_name = str(metadata["name"])
@@ -80,6 +80,7 @@ class FilterDataset(BaseWrapperDataset):
         assert dataset_name in self.dataset_name_to_index, f"Error: dataset path {dataset_name} not in dataset_index"
         dataset_index = self.dataset_name_to_index[str(metadata["name"])]
 
+        
         return self.concat_dataset.datasets[dataset_index][sample_idx]
 
     def __len__(self):
