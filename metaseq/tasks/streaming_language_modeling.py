@@ -409,6 +409,7 @@ class StreamingLanguageModelingTask(LegacyTask):
             new_len_dataset = len(dataset)
             logger.info(f"Length of new dataset is: {new_len_dataset}")
 
+
         # shuffle order across epochs
         dataset = StreamingShuffleDataset(dataset, seed=self.args.seed)
 

@@ -205,9 +205,6 @@ class CrossEntropyCriterion(BaseCriterion):
                                     "path_info": logging_output["path_infos"][i],
                                 }
                                 f_index_out.write(json.dumps(log_line) + "\n")
-                            # with open(f"{data_pruning_metrics_savedir}/ssl_embeddings/{counter}_targ_{hash_to_add}.npy", "wb") as target_out_f:
-                            #     serialized_target = serialize_tensor_to_numpy(logging_output["targets"][i])
-                            #     np.save(target_out_f, serialized_target)
 
                             counter += 1
 
