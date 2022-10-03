@@ -130,6 +130,9 @@ class StreamingLanguageModelingConfig(MetaseqDataclass):
     batch_size_valid: Optional[int] = II("dataset.batch_size_valid")
     data_buffer_size: int = II("dataset.data_buffer_size")
     update_freq: List[int] = II("optimization.update_freq")
+    log_file: Optional[str] = field(
+        default= None, metadata={"help": "Log validation token likelihoods here"}
+    )
 
 
 @register_task("streaming_language_modeling", dataclass=StreamingLanguageModelingConfig)
@@ -145,6 +148,7 @@ class StreamingLanguageModelingTask(LegacyTask):
     """
 
     def __init__(self, args):
+        logger.info(f"SLM TASK: {args}")
         super().__init__(args)
 
         if not has_hf_tokenizers:
@@ -198,9 +202,15 @@ class StreamingLanguageModelingTask(LegacyTask):
             assert use_data_pruning_metrics != compute_data_pruning_metrics, "Error: only one of `--use-data-pruning-metrics` and `--compute-data-pruning-metrics` should be true"
 
             if compute_data_pruning_metrics:
+                self.compute_data_pruning_metrics = True
+                self.use_data_pruning_metrics = False
+                
                 self.data_pruning_metrics = self.args.compute_data_pruning_metrics.split(",")
                 self.data_pruning_savedir = self.args.compute_data_pruning_metrics_savedir
             else:
+                self.compute_data_pruning_metrics = False
+                self.use_data_pruning_metrics = True
+                
                 assert self.args.use_data_pruning_metrics_filepath is not None, "Please specify filepath to computed metrics via `--use-data-pruning-metrics-filepath`"
                 self.use_data_pruning_metrics_filepath = self.args.use_data_pruning_metrics_filepath
                 self.use_data_pruning_metrics_frac_data = self.args.use_data_pruning_metrics_frac_data
@@ -342,7 +352,7 @@ class StreamingLanguageModelingTask(LegacyTask):
         # shuffles them, then chunks them into blocks of tokens (e.g., 2048).
 
         # determine number of shards for this split
-        cur_shard_str = self.get_shard_str(epoch, split)
+        cur_shard_str = kwargs.get("cur_shard_str", self.get_shard_str(epoch, split))
 
         if split == 'train':
             cur_shard_str = '10'
@@ -441,6 +451,7 @@ class StreamingLanguageModelingTask(LegacyTask):
             pad_idx=self.source_dictionary.pad(),
             pad_to_bsz=self.args.batch_size,
         )
+
         # generate inputs and targets
         input = tokens[:, :-1].contiguous()
         target = tokens[:, 1:].contiguous()

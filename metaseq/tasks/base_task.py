@@ -406,7 +406,7 @@ class BaseTask(object):
         model.train()
         model.set_num_updates(update_num)
         with torch.autograd.profiler.record_function("forward"):
-            loss, sample_size, logging_output = criterion(model, sample)
+            loss, sample_size, logging_output = criterion(model, sample, compute_metrics=self.compute_data_pruning_metrics)
         if ignore_grad:
             loss *= 0
         with torch.autograd.profiler.record_function("backward"):
@@ -416,7 +416,7 @@ class BaseTask(object):
     def valid_step(self, sample, model, criterion):
         model.eval()
         with torch.no_grad():
-            loss, sample_size, logging_output = criterion(model, sample)
+            loss, sample_size, logging_output = criterion(model, sample, compute_metrics=self.compute_data_pruning_metrics)
         return loss, sample_size, logging_output
 
     def optimizer_step(self, optimizer, model, update_num):

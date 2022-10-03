@@ -21,6 +21,8 @@ import os
 
 import time
 
+import os
+
 logger = logging.getLogger(__name__)
 
 
@@ -53,8 +55,17 @@ def nll_loss(lprobs, target, ignore_index=None, reduction="mean"):
 class CrossEntropyCriterion(BaseCriterion):
     def __init__(self, task):
         super().__init__(task)
+        self.log_file = task.args.log_file
+        if self.log_file:
+            logger.info(f"Logging to {self.log_file}")
 
-    def forward(self, model, sample, reduce=True):
+            try:
+                os.remove(self.log_file)
+                logger.info(f"Overwriting previous file: {self.log_file}")
+            except FileNotFoundError:
+                pass
+
+    def forward(self, model, sample, reduce=True, compute_metrics=False):
         """Compute the loss for the given sample.
 
         Returns a tuple with three elements:
@@ -100,20 +111,21 @@ class CrossEntropyCriterion(BaseCriterion):
                         dtype=torch.float32
                     )
 
-        #top_probs, top_tokens = torch.topk(np, 5, dim=2)
-        logging_output["targets"] = targets
-        logging_output["log_probs"] = target_log_probs
-        
-        logging_output["path_infos"] = sample["path_infos"]
-        logging_output["final_embedding"] = actv.transpose(0,1)
+        if compute_metrics:
+            logging_output["targets"] = targets
+            logging_output["log_probs"] = target_log_probs
+            
+            logging_output["path_infos"] = sample["path_infos"]
+            logging_output["final_embedding"] = actv.transpose(0,1)
 
-        # compute el2n score
-        nsentences = sample["target"].size(0)
-        loss_vector, _ = self.compute_loss(model, net_output, sample, reduce=False)
-        loss_vector = loss_vector.reshape((nsentences,-1))
+            # compute el2n score
+            nsentences = sample["target"].size(0)
+            loss_vector, _ = self.compute_loss(model, net_output, sample, reduce=False)
+            loss_vector = loss_vector.reshape((nsentences,-1))
 
-        # 2 norm of loss vector
-        logging_output["el2n_score"] = torch.linalg.norm(loss_vector, dim=1)
+            # 2 norm of loss vector
+            logging_output["el2n_score"] = torch.linalg.norm(loss_vector, dim=1)
+            logging_output["id"] = sample["id"]
 
         return loss, sample_size, logging_output
 
@@ -158,8 +170,8 @@ class CrossEntropyCriterion(BaseCriterion):
                 "ppl", lambda meters: utils.get_perplexity(meters["loss"].avg)
             )
 
-        def serialize_tensor(t):
-            return t.cpu().detach().numpy().tolist()
+        def serialize_tensor(t, multiplier=1):
+            return [int(x * multiplier) for x in t.cpu().detach().numpy().tolist()]
 
         def serialize_tensor_to_numpy(t):
             return t.cpu().detach().numpy()
@@ -171,6 +183,7 @@ class CrossEntropyCriterion(BaseCriterion):
                         batch_size = logging_output["targets"].shape[0]
                         for i in range(batch_size):
                             log_line = {
+                                "id": int(logging_output["id"][i]),
                                 "t":  serialize_tensor(logging_output["targets"][i]),
                                 "p":  serialize_tensor(logging_output["log_probs"][i]),
                                 "path_info": logging_output["path_infos"][i],
@@ -222,7 +235,6 @@ class CrossEntropyCriterion(BaseCriterion):
                             }
                             f.write(json.dumps(log_line) + "\n")
                 logger.info("Done writing el2n info!")
-    
 
     @staticmethod
     def logging_outputs_can_be_summed() -> bool:
