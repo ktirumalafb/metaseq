@@ -10,6 +10,7 @@ import logging
 import os
 import re
 import traceback
+import numpy as np
 from glob import glob
 from typing import Any, Dict, List, Optional
 
@@ -517,6 +518,7 @@ def load_model_ensemble_and_task(
             state["model"][oproj_key] = state["model"][emb_key]
 
             model.load_state_dict(state["model"], strict=strict, model_cfg=cfg.model)
+
             logger.info("Done loading state dict")
             # reset state so it gets loaded for the next model in ensemble
             state = None

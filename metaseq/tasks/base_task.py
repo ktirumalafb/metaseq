@@ -406,7 +406,7 @@ class BaseTask(object):
         model.train()
         model.set_num_updates(update_num)
         with torch.autograd.profiler.record_function("forward"):
-            loss, sample_size, logging_output = criterion(model, sample)
+            loss, sample_size, logging_output = criterion(model, sample, compute_metrics=self.compute_data_pruning_metrics)
         if ignore_grad:
             loss *= 0
         with torch.autograd.profiler.record_function("backward"):
@@ -416,7 +416,7 @@ class BaseTask(object):
     def valid_step(self, sample, model, criterion):
         model.eval()
         with torch.no_grad():
-            loss, sample_size, logging_output = criterion(model, sample)
+            loss, sample_size, logging_output = criterion(model, sample, compute_metrics=self.compute_data_pruning_metrics)
         return loss, sample_size, logging_output
 
     def optimizer_step(self, optimizer, model, update_num):
@@ -483,7 +483,11 @@ class BaseTask(object):
             nsentences = sum(log.get("nsentences", 0) for log in logging_outputs)
             metrics.log_scalar("bsz", nsentences, priority=190, round=1)
 
-        criterion.reduce_metrics(logging_outputs)
+        # This should only be activated if we are doing data pruning for language modeling evaluation
+        if self.args._name == "streaming_language_modeling" and ('compute_data_pruning_metrics' in self.args and self.args['compute_data_pruning_metrics']):
+            criterion.__class__.reduce_metrics(logging_outputs, self.data_pruning_metrics, self.data_pruning_savedir)
+        else:
+            criterion.__class__.reduce_metrics(logging_outputs)
 
     def state_dict(self):
         if self.state is not None:

@@ -51,3 +51,6 @@ class StreamingShuffleDataset(torch.utils.data.IterableDataset):
 
         for idx in indices:
             yield self.dataset[idx]
+
+    def __len__(self):
+        return len(self.dataset)

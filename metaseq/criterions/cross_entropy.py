@@ -16,6 +16,10 @@ from metaseq.distributed import utils as dist_utils
 import logging
 
 import json
+import numpy as np
+import os
+
+import time
 
 import os
 
@@ -52,15 +56,16 @@ class CrossEntropyCriterion(BaseCriterion):
     def __init__(self, task):
         super().__init__(task)
         self.log_file = task.args.log_file
-        logger.info(f"Logging to {self.log_file}")
+        if self.log_file:
+            logger.info(f"Logging to {self.log_file}")
 
-        try:
-            os.remove(self.log_file)
-            logger.info(f"Overwriting previous file: {self.log_file}")
-        except FileNotFoundError:
-            pass
+            try:
+                os.remove(self.log_file)
+                logger.info(f"Overwriting previous file: {self.log_file}")
+            except FileNotFoundError:
+                pass
 
-    def forward(self, model, sample, reduce=True):
+    def forward(self, model, sample, reduce=True, compute_metrics=False):
         """Compute the loss for the given sample.
 
         Returns a tuple with three elements:
@@ -68,7 +73,6 @@ class CrossEntropyCriterion(BaseCriterion):
         2) the sample size, which is used as the denominator for the gradient
         3) logging outputs to display while training
         """
-        #logger.info(str(sample))
         net_output = model(**sample["net_input"])
 
         np = model.get_normalized_probs(net_output, log_probs=True)
@@ -107,11 +111,21 @@ class CrossEntropyCriterion(BaseCriterion):
                         dtype=torch.float32
                     )
 
-        #top_probs, top_tokens = torch.topk(np, 5, dim=2)
+        if compute_metrics:
+            logging_output["targets"] = targets
+            logging_output["log_probs"] = target_log_probs
+            
+            logging_output["path_infos"] = sample["path_infos"]
+            logging_output["final_embedding"] = actv.transpose(0,1)
 
-        logging_output["targets"] = targets
-        logging_output["log_probs"] = target_log_probs
-        logging_output["id"] = sample["id"]
+            # compute el2n score
+            nsentences = sample["target"].size(0)
+            loss_vector, _ = self.compute_loss(model, net_output, sample, reduce=False)
+            loss_vector = loss_vector.reshape((nsentences,-1))
+
+            # 2 norm of loss vector
+            logging_output["el2n_score"] = torch.linalg.norm(loss_vector, dim=1)
+            logging_output["id"] = sample["id"]
 
         return loss, sample_size, logging_output
 
@@ -127,8 +141,8 @@ class CrossEntropyCriterion(BaseCriterion):
         )
         return loss, loss
 
-    #@staticmethod
-    def reduce_metrics(self, logging_outputs) -> None:
+    @staticmethod
+    def reduce_metrics(logging_outputs, data_pruning_metrics=None, data_pruning_metrics_savedir=None) -> None:
         """Aggregate logging outputs from data parallel training."""
         loss_sum = sum(log.get("loss", 0) for log in logging_outputs)
         ntokens = sum(log.get("ntokens", 0) for log in logging_outputs)
@@ -139,7 +153,7 @@ class CrossEntropyCriterion(BaseCriterion):
             if any(key in log for log in logging_outputs):
                 actv_norm = sum(log.get(key, 0) for log in logging_outputs)
                 metrics.log_scalar(key, actv_norm / ntokens, round=3)
-
+        
         # we divide by log(2) to convert the loss from base e to base 2
         metrics.log_scalar(
             "loss", loss_sum / sample_size / math.log(2), sample_size, round=3
@@ -159,20 +173,68 @@ class CrossEntropyCriterion(BaseCriterion):
         def serialize_tensor(t, multiplier=1):
             return [int(x * multiplier) for x in t.cpu().detach().numpy().tolist()]
 
-        output_file = self.log_file
-        line_cnt = 0
-        with open(output_file, "a") as f:
-            for logging_output in logging_outputs:
-                batch_size = logging_output["targets"].shape[0]
-                for i in range(batch_size):
-                    log_line = {
-                        "id": int(logging_output["id"][i]),
-                        "t":  serialize_tensor(logging_output["targets"][i]),
-                        "p":  serialize_tensor(logging_output["log_probs"][i], multiplier=100),
-                    }
-                    f.write(json.dumps(log_line) + "\n")
-                    line_cnt += 1
-        #logger.info(f"Wrote {line_cnt} lines to {output_file}")
+        def serialize_tensor_to_numpy(t):
+            return t.cpu().detach().numpy()
+
+        if data_pruning_metrics:
+            if "ppl" in data_pruning_metrics:
+                with open(f"{data_pruning_metrics_savedir}/ppl_output.json", "a") as f:
+                    for logging_output in logging_outputs:
+                        batch_size = logging_output["targets"].shape[0]
+                        for i in range(batch_size):
+                            log_line = {
+                                "id": int(logging_output["id"][i]),
+                                "t":  serialize_tensor(logging_output["targets"][i]),
+                                "p":  serialize_tensor(logging_output["log_probs"][i]),
+                                "path_info": logging_output["path_infos"][i],
+                            }
+                            f.write(json.dumps(log_line) + "\n")
+                logger.info("Done writing ppl info!")
+
+
+            if "ssl_prototypes" in data_pruning_metrics:
+                counter = 0
+                hash_targets = hash(logging_output["targets"])
+                hash_path_infos = hash("".join(logging_output["path_infos"]))
+
+                hash_to_add = str(hash_targets) + "" + str(hash_path_infos)
+
+
+                if not os.path.isdir(f"{data_pruning_metrics_savedir}/ssl_embeddings"):
+                    os.mkdir(f"{data_pruning_metrics_savedir}/ssl_embeddings")
+
+                with open(f"{data_pruning_metrics_savedir}/ssl_embeddings/index.json", "a") as f_index_out:
+
+                    for logging_output in logging_outputs:
+                        batch_size = logging_output["targets"].shape[0]
+                        for i in range(batch_size):
+
+                            with open(f"{data_pruning_metrics_savedir}/ssl_embeddings/{counter}_emb_{hash_to_add}.npy", "wb") as embedding_out_f:
+                                serialized_embedding = serialize_tensor_to_numpy(logging_output["final_embedding"][i])
+                                np.save(embedding_out_f, serialized_embedding)
+
+                                log_line = {
+                                    "name":  f"{data_pruning_metrics_savedir}/ssl_embeddings/{counter}_emb_{hash_to_add}.npy",
+                                    "path_info": logging_output["path_infos"][i],
+                                }
+                                f_index_out.write(json.dumps(log_line) + "\n")
+
+                            counter += 1
+
+
+                    logger.info("Done writing embedding info!")
+
+            if "el2n" in data_pruning_metrics:
+                with open(f"{data_pruning_metrics_savedir}/el2n.json", "a") as f:
+                    for logging_output in logging_outputs:
+                        batch_size = logging_output["targets"].shape[0]
+                        for i in range(batch_size):
+                            log_line = {
+                                "path_info": logging_output["path_infos"][i],
+                                "el2n_metric": logging_output["el2n_score"][i].item()
+                            }
+                            f.write(json.dumps(log_line) + "\n")
+                logger.info("Done writing el2n info!")
 
     @staticmethod
     def logging_outputs_can_be_summed() -> bool:

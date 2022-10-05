@@ -133,9 +133,14 @@ def yield_single_sentences_pad_8(iterable, block_size, drop_last, padding_idx):
     very long examples.
     """
 
-    for idx, item in enumerate(iterable):
+    for idx, tupl in enumerate(iterable):
+        item = tupl["item"]
+        path_info = tupl["sp_id"]
+
         cur_block = []
         cur_block_ids = []
+        cur_path_info_arr = []
+
         if item.numel() > block_size:
             # truncate right side
             # TODO: Enable left side truncation
@@ -153,9 +158,12 @@ def yield_single_sentences_pad_8(iterable, block_size, drop_last, padding_idx):
         cur_block.append(padding)
 
         cur_block_ids.append(idx)
+        cur_path_info_arr.append(path_info)
+
         yield {
             "ids": torch.LongTensor(cur_block_ids),
             "block": torch.cat(cur_block),
+            "path_infos": cur_path_info_arr
         }
 
 
@@ -164,7 +172,8 @@ def yield_doc_blocks(iterable, block_size, drop_last, padding_idx):
     cur_block = []
     cur_block_ids = []
     cur_block_remain = block_size
-    for idx, item in enumerate(iterable):
+    for idx, tupl in enumerate(iterable):
+        item = tupl["item"]
         if item.numel() > block_size:
             # truncate right side
             item = item[:block_size]
@@ -203,9 +212,13 @@ def yield_token_blocks(iterable, block_size, drop_last, padding_idx):
     """Sample break mode = None. (Pre-Training default)."""
     cur_block = []
     cur_block_ids = []
+    cur_path_info_arr = []
     cur_block_remain = block_size
-    for idx, item in enumerate(iterable):
+    for idx, tupl in enumerate(iterable):
+        item = tupl["item"]
+        path_info = tupl["sp_id"]
         cur_block_ids.append(idx)
+        cur_path_info_arr.append(path_info)
         while item.numel() > 0:
             num_to_take = min(item.numel(), cur_block_remain)
 
@@ -221,10 +234,12 @@ def yield_token_blocks(iterable, block_size, drop_last, padding_idx):
                 yield {
                     "ids": torch.LongTensor(cur_block_ids),
                     "block": block[:block_size],
+                    "path_infos": cur_path_info_arr
                 }
 
                 cur_block = []
                 cur_block_ids = []
+                cur_path_info_arr = []
                 cur_block_remain = block_size
 
     if not drop_last and len(cur_block) > 0:
@@ -236,4 +251,5 @@ def yield_token_blocks(iterable, block_size, drop_last, padding_idx):
         yield {
             "ids": torch.LongTensor(cur_block_ids),
             "block": block,
+            "path_infos": cur_path_info_arr
         }

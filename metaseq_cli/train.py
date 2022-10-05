@@ -550,7 +550,6 @@ def validate(
                     subset, len(progress)
                 )
             )
-
             # create a new root metrics aggregator so validation metrics
             # don't pollute other aggregators (e.g., train meters)
             with metrics.aggregate() as agg:
