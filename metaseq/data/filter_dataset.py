@@ -65,6 +65,10 @@ class FilterDataset(BaseWrapperDataset):
             df['temp'].apply(json.loads)
             df = pd.json_normalize(df['temp'].apply(json.loads))
 
+            # We use a single file to store metrics for all shards / datasets, but our
+            # indexing logic depends on the index having data points only from the currently processed shard.
+            df = df[df['name'].isin(dataset_name_to_index.keys())]
+
         elif metric_file.endswith(".csv"):
             df = pd.read_csv(metric_file)
 
@@ -77,7 +81,7 @@ class FilterDataset(BaseWrapperDataset):
         dataset_name = str(metadata["name"])
         sample_idx = int(metadata["index"])
 
-        assert dataset_name in self.dataset_name_to_index, f"Error: dataset path {dataset_name} not in dataset_index"
+        assert dataset_name in self.dataset_name_to_index, f"Error: dataset path {dataset_name} not in dataset_index. Keys: {list(self.dataset_name_to_index.keys())}"
         dataset_index = self.dataset_name_to_index[str(metadata["name"])]
 
         

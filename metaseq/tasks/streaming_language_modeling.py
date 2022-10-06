@@ -197,18 +197,19 @@ class StreamingLanguageModelingTask(LegacyTask):
         use_data_pruning_metrics = self.args.use_data_pruning_metrics
         compute_data_pruning_metrics = self.args.compute_data_pruning_metrics is not None
 
+        self.compute_data_pruning_metrics = False
+        self.use_data_pruning_metrics = False
+
         # If one of these flags are turned on, the other must be turned off
         if (use_data_pruning_metrics) or (compute_data_pruning_metrics):
             assert use_data_pruning_metrics != compute_data_pruning_metrics, "Error: only one of `--use-data-pruning-metrics` and `--compute-data-pruning-metrics` should be true"
 
             if compute_data_pruning_metrics:
                 self.compute_data_pruning_metrics = True
-                self.use_data_pruning_metrics = False
                 
                 self.data_pruning_metrics = self.args.compute_data_pruning_metrics.split(",")
                 self.data_pruning_savedir = self.args.compute_data_pruning_metrics_savedir
             else:
-                self.compute_data_pruning_metrics = False
                 self.use_data_pruning_metrics = True
                 
                 assert self.args.use_data_pruning_metrics_filepath is not None, "Please specify filepath to computed metrics via `--use-data-pruning-metrics-filepath`"
@@ -354,8 +355,6 @@ class StreamingLanguageModelingTask(LegacyTask):
         # determine number of shards for this split
         cur_shard_str = kwargs.get("cur_shard_str", self.get_shard_str(epoch, split))
 
-        if split == 'train':
-            cur_shard_str = '10'
 
         # concatenate any jsonl files that are part of the shard
         datasets, corpora = [], []
@@ -379,7 +378,7 @@ class StreamingLanguageModelingTask(LegacyTask):
             )
             corpora.append(os.path.splitext(file)[0])
 
-            dataset_name_to_index[os.path.join(self.args.data, split, cur_shard_str, file)] = dataset_index_counter
+            dataset_name_to_index[f"{cur_shard_str}/{file}"] = dataset_index_counter
             dataset_index_to_name[dataset_index_counter] = os.path.join(self.args.data, split, cur_shard_str, file)
             dataset_index_counter += 1
 
@@ -403,7 +402,7 @@ class StreamingLanguageModelingTask(LegacyTask):
             else:
                 metric_df = FilterDataset.retrieve_metric_df(
                     metric_file=self.args.use_data_pruning_metrics_filepath,
-                    dataset_name_to_index=dataset_name_to_index
+                    dataset_name_to_index=dataset_name_to_index,
                 )
                 n_metric_df = len(metric_df)
                 logger.info(f"Filtering data points - length of metric df: {n_metric_df}")
@@ -414,7 +413,7 @@ class StreamingLanguageModelingTask(LegacyTask):
                     dataset, 
                     frac_data=self.args.use_data_pruning_metrics_frac_data, 
                     metric_data=metric_df,
-                    dataset_name_to_index=dataset_name_to_index
+                    dataset_name_to_index=dataset_name_to_index,
                 )
             new_len_dataset = len(dataset)
             logger.info(f"Length of new dataset is: {new_len_dataset}")
