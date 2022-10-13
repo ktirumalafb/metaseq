@@ -43,10 +43,13 @@ class FilterDataset(BaseWrapperDataset):
 
         # This means we should not be pruning, because not enough datapoints have a computed metric
         limit = int(np.ceil(len(self.concat_dataset) * self.frac_data))
-        self.length = limit
 
         self.metric_data.sort_values('metric', inplace=True, ascending=False)
         self.metric_data = self.metric_data[:limit]
+
+        # If there are a subset of data points in the csv file, then just train on those data points
+        # otherwise, take the limit defined by `frac_data`
+        self.length = len(self.metric_data)
 
         self.dataset_name_to_index = dataset_name_to_index
 

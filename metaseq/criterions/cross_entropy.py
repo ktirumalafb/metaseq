@@ -199,7 +199,6 @@ class CrossEntropyCriterion(BaseCriterion):
 
                 hash_to_add = str(hash_targets) + "" + str(hash_path_infos)
 
-
                 if not os.path.isdir(f"{data_pruning_metrics_savedir}/ssl_embeddings"):
                     os.mkdir(f"{data_pruning_metrics_savedir}/ssl_embeddings")
 
@@ -243,4 +242,4 @@ class CrossEntropyCriterion(BaseCriterion):
         across workers prior to calling `reduce_metrics`. Setting this
         to True will improves distributed training speed.
         """
-        return True
+        return False
