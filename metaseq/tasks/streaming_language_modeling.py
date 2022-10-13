@@ -355,7 +355,6 @@ class StreamingLanguageModelingTask(LegacyTask):
         # determine number of shards for this split
         cur_shard_str = kwargs.get("cur_shard_str", self.get_shard_str(epoch, split))
 
-
         # concatenate any jsonl files that are part of the shard
         datasets, corpora = [], []
 
