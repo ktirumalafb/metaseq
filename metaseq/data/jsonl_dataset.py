@@ -35,9 +35,10 @@ class JsonlDataset(torch.utils.data.Dataset):
     Note that only the "text" key is used.
     """
 
-    def __init__(self, path: str, tokenizer: Optional[Callable] = None, recache=False):
+    def __init__(self, path: str, tokenizer: Optional[Callable] = None, include_path_infos_in_jsonl_dataset: bool = False, recache=False):
         self.path = path
         self.tokenizer = tokenizer
+        self.include_path_infos_in_jsonl_dataset = include_path_infos_in_jsonl_dataset
 
         self.threadlocal = threading.local()
         # TODO(susan): Fix this fairseq reference. _build_index fails otherwise.
@@ -74,10 +75,16 @@ class JsonlDataset(torch.utils.data.Dataset):
         item = json.loads(item)
         if self.tokenizer is not None:
             item = self.tokenizer(item)
-        return {
-            "item": item,
-            "sp_id": f"{self.path}|{idx}"
-        }
+
+        if self.include_path_infos_in_jsonl_dataset:
+            return {
+                "item": item,
+                "sp_id": f"{self.path}|{idx}"
+            }
+        else:
+            return {
+                "item": item,
+            }
 
     def __len__(self):
         return len(self.offsets)

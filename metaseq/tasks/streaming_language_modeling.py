@@ -216,6 +216,10 @@ class StreamingLanguageModelingTask(LegacyTask):
                 self.use_data_pruning_metrics_filepath = self.args.use_data_pruning_metrics_filepath
                 self.use_data_pruning_metrics_frac_data = self.args.use_data_pruning_metrics_frac_data
 
+
+        self.compute_data_pruning_metrics = compute_data_pruning_metrics
+        self.use_data_pruning_metrics = use_data_pruning_metrics
+        
         # confirm that metaseq dictionary and BPE have matching special symbols
         assert self.dictionary.bos_index == 0
         assert self.tokenizer.id_to_token(0) in {"<BOS>", "<s>"}
@@ -363,7 +367,12 @@ class StreamingLanguageModelingTask(LegacyTask):
         dataset_index_counter = 0
 
         dataset_index_to_name = {}
-        
+
+        # Don't include path infos in dataset if you are
+        # not computing data pruning metrics or using
+        # data pruning metrics
+        include_path_infos_in_jsonl_dataset = (self.args.use_data_pruning_metrics) or (self.args.compute_data_pruning_metrics is not None)
+
         for file in sorted(
             os.listdir(os.path.join(self.args.data, split, cur_shard_str))
         ):
@@ -373,6 +382,7 @@ class StreamingLanguageModelingTask(LegacyTask):
                 JsonlDataset(
                     path=os.path.join(self.args.data, split, cur_shard_str, file),
                     tokenizer=self._tokenize_one_json,
+                    include_path_infos_in_jsonl_dataset=include_path_infos_in_jsonl_dataset
                 )
             )
             corpora.append(os.path.splitext(file)[0])
@@ -462,7 +472,7 @@ class StreamingLanguageModelingTask(LegacyTask):
             )
         
         path_infos = None
-        if "path_infos" in items[0]:
+        if "path_infos" in items[0] and items[0]["path_infos"] is not None:
             path_infos = [x["path_infos"][0] for x in items if x is not None]
 
         # metaseq expects batches to have the following structure

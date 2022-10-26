@@ -216,9 +216,15 @@ def yield_token_blocks(iterable, block_size, drop_last, padding_idx):
     cur_block_remain = block_size
     for idx, tupl in enumerate(iterable):
         item = tupl["item"]
-        path_info = tupl["sp_id"]
+
+        path_info = None
+        if "sp_id" in tupl:
+            path_info = tupl["sp_id"]
+        
         cur_block_ids.append(idx)
-        cur_path_info_arr.append(path_info)
+
+        if path_info is not None:
+            cur_path_info_arr.append(path_info)
         while item.numel() > 0:
             num_to_take = min(item.numel(), cur_block_remain)
 
@@ -234,7 +240,7 @@ def yield_token_blocks(iterable, block_size, drop_last, padding_idx):
                 yield {
                     "ids": torch.LongTensor(cur_block_ids),
                     "block": block[:block_size],
-                    "path_infos": cur_path_info_arr
+                    "path_infos": cur_path_info_arr if len(cur_path_info_arr) > 0 else None
                 }
 
                 cur_block = []
@@ -251,5 +257,5 @@ def yield_token_blocks(iterable, block_size, drop_last, padding_idx):
         yield {
             "ids": torch.LongTensor(cur_block_ids),
             "block": block,
-            "path_infos": cur_path_info_arr
+            "path_infos": cur_path_info_arr if len(cur_path_info_arr) > 0 else None
         }

@@ -72,17 +72,17 @@ class FilterDataset(BaseWrapperDataset):
             df['temp'].apply(json.loads)
             df = pd.json_normalize(df['temp'].apply(json.loads))
 
-            logger.info(f"Raw metric file length: {len(df)}")
-
-            # We use a single file to store metrics for all shards / datasets, but our
-            # indexing logic depends on the index having data points only from the currently processed shard.
-            curent_shard_keys = list(dataset_name_to_index.keys())
-            logger.info(f"Filtering metric files for shards: {curent_shard_keys}")
-            df = df[df['name'].isin(curent_shard_keys)]
-            logger.info(f"Metric df length after filtering: {len(df)}")
-
         elif metric_file.endswith(".csv"):
             df = pd.read_csv(metric_file)
+
+        logger.info(f"Raw metric file length: {len(df)}")
+
+        # We use a single file to store metrics for all shards / datasets, but our
+        # indexing logic depends on the index having data points only from the currently processed shard.
+        curent_shard_keys = list(dataset_name_to_index.keys())
+        logger.info(f"Filtering metric files for shards: {curent_shard_keys}")
+        df = df[df['name'].isin(curent_shard_keys)]
+        logger.info(f"Metric df length after filtering: {len(df)}")
 
         return df
 
