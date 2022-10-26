@@ -116,6 +116,8 @@ class CrossEntropyCriterion(BaseCriterion):
             logging_output["log_probs"] = target_log_probs
             
             logging_output["path_infos"] = sample["path_infos"]
+
+            # for ssl prototypes
             logging_output["final_embedding"] = actv.transpose(0,1)
 
             # compute el2n score
@@ -208,6 +210,10 @@ class CrossEntropyCriterion(BaseCriterion):
                         batch_size = logging_output["targets"].shape[0]
                         for i in range(batch_size):
 
+                            num_pad = sum(int(x==1) for x in serialize_tensor(logging_output["targets"][i]))
+                            length_final = len(serialize_tensor(logging_output["log_probs"][i])),
+                            
+
                             with open(f"{data_pruning_metrics_savedir}/ssl_embeddings/{counter}_emb_{hash_to_add}.npy", "wb") as embedding_out_f:
                                 serialized_embedding = serialize_tensor_to_numpy(logging_output["final_embedding"][i])
                                 np.save(embedding_out_f, serialized_embedding)
@@ -215,6 +221,8 @@ class CrossEntropyCriterion(BaseCriterion):
                                 log_line = {
                                     "name":  f"{data_pruning_metrics_savedir}/ssl_embeddings/{counter}_emb_{hash_to_add}.npy",
                                     "path_info": logging_output["path_infos"][i],
+                                    "length": length_final,
+                                    "num_pad": num_pad
                                 }
                                 f_index_out.write(json.dumps(log_line) + "\n")
 
@@ -227,10 +235,17 @@ class CrossEntropyCriterion(BaseCriterion):
                 with open(f"{data_pruning_metrics_savedir}/el2n.json", "a") as f:
                     for logging_output in logging_outputs:
                         batch_size = logging_output["targets"].shape[0]
+
+                        
                         for i in range(batch_size):
+
+                            num_pad = sum(int(x==1) for x in serialize_tensor(logging_output["targets"][i]))
+                            length_final = len(serialize_tensor(logging_output["log_probs"][i]))
                             log_line = {
                                 "path_info": logging_output["path_infos"][i],
-                                "el2n_metric": logging_output["el2n_score"][i].item()
+                                "el2n_metric": logging_output["el2n_score"][i].item(),
+                                "length": length_final,
+                                "num_pad": num_pad
                             }
                             f.write(json.dumps(log_line) + "\n")
                 logger.info("Done writing el2n info!")
