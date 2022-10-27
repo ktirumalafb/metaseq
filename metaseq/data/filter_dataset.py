@@ -44,13 +44,16 @@ class FilterDataset(BaseWrapperDataset):
         self.concat_dataset = dataset
         self.metric_data = metric_data
 
+
         # We only ever include stuff that is in metric_data. If our actual training set is a superset - we don't care.
         limit = int(np.ceil(len(self.metric_data) * self.frac_data))
-        self.length = limit
 
         self.metric_data.sort_values('metric', inplace=True, ascending=False)
         self.metric_data = self.metric_data[:limit]
 
+        # If there are a subset of data points in the csv file, then just train on those data points
+        # otherwise, take the limit defined by `frac_data`
+        self.length = len(self.metric_data)
         logger.info(f"Concat dataset length: {len(self.concat_dataset)}")
         logger.info(f"Filter dataset length: {len(self.metric_data)} * {self.frac_data} = {self.length}")
 
@@ -72,17 +75,17 @@ class FilterDataset(BaseWrapperDataset):
             df['temp'].apply(json.loads)
             df = pd.json_normalize(df['temp'].apply(json.loads))
 
-            logger.info(f"Raw metric file length: {len(df)}")
-
-            # We use a single file to store metrics for all shards / datasets, but our
-            # indexing logic depends on the index having data points only from the currently processed shard.
-            curent_shard_keys = list(dataset_name_to_index.keys())
-            logger.info(f"Filtering metric files for shards: {curent_shard_keys}")
-            df = df[df['name'].isin(curent_shard_keys)]
-            logger.info(f"Metric df length after filtering: {len(df)}")
-
         elif metric_file.endswith(".csv"):
             df = pd.read_csv(metric_file)
+
+        logger.info(f"Raw metric file length: {len(df)}")
+
+        # We use a single file to store metrics for all shards / datasets, but our
+        # indexing logic depends on the index having data points only from the currently processed shard.
+        curent_shard_keys = list(dataset_name_to_index.keys())
+        logger.info(f"Filtering metric files for shards: {curent_shard_keys}")
+        df = df[df['name'].isin(curent_shard_keys)]
+        logger.info(f"Metric df length after filtering: {len(df)}")
 
         return df
 

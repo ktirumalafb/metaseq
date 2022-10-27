@@ -31,6 +31,8 @@ TOTAL_WARMUP_TOKENS = 375e6
 M = 1024 * 1024  # 1 million
 MODEL_SIZES = {
     "8m": Size(4, 128, 2, 64, int(0.5 * M), 1.0e-3, 2),  # tiny
+    "25m": Size(6, 256, 4, 64, int(0.5 * M), 1.0e-3, 2),  # 25m
+    "50m": Size(8, 512, 8, 64, int(0.5 * M), 9.0e-4, 2),  # 50m
     "125m": Size(12, 768, 12, 64, int(0.5 * M), 6.0e-4, 2),  # small
     "350m": Size(24, 1024, 16, 64, int(0.5 * M), 3.0e-4, 2),  # medium
     "760m": Size(24, 1536, 16, 96, int(0.5 * M), 2.5e-4, 2),  # large
