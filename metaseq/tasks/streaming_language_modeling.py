@@ -414,7 +414,7 @@ class StreamingLanguageModelingTask(LegacyTask):
                     dataset_name_to_index=dataset_name_to_index,
                 )
                 n_metric_df = len(metric_df)
-                logger.info(f"Filtering data points - length of metric df: {n_metric_df}")
+                logger.info(f"Filtering data points - original length of metric df: {n_metric_df}")
                 # If len(metric_df) < len(dataset), then not every
                 # document has a computed metric, so we should not
                 # be pruning
@@ -426,7 +426,6 @@ class StreamingLanguageModelingTask(LegacyTask):
                 )
             new_len_dataset = len(dataset)
             logger.info(f"Length of new dataset is: {new_len_dataset}")
-
 
         # shuffle order across epochs
         dataset = StreamingShuffleDataset(dataset, seed=self.args.seed)

@@ -49,16 +49,28 @@ class FilterDataset(BaseWrapperDataset):
         limit = int(np.ceil(len(self.metric_data) * self.frac_data))
 
         self.metric_data.sort_values('metric', inplace=True, ascending=False)
-        self.metric_data = self.metric_data[:limit]
+        logger.info(f"Concat dataset length: {len(self.concat_dataset)}")
 
         # If there are a subset of data points in the csv file, then just train on those data points
         # otherwise, take the limit defined by `frac_data`
-        self.length = len(self.metric_data)
-        logger.info(f"Concat dataset length: {len(self.concat_dataset)}")
-        logger.info(f"Filter dataset length: {len(self.metric_data)} * {self.frac_data} = {self.length}")
+        self.metric_data = self.metric_data[:limit]
+
+        logger.info(f"New df length after adding frac_data limit: {len(self.metric_data )}")
 
 
         self.dataset_name_to_index = dataset_name_to_index
+
+
+        # We use a single file to store metrics for all shards / datasets, but our
+        # indexing logic depends on the index having data points only from the currently processed shard.
+        # So as a final pre-processing step, only include the examples from the current shard
+        curent_shard_keys = list(self.dataset_name_to_index.keys())
+        logger.info(f"Filtering metric files for shards: {curent_shard_keys}")
+        self.metric_data = self.metric_data[self.metric_data['name'].isin(curent_shard_keys)]
+        logger.info(f"Metric df length after filtering for shard: {len(self.metric_data )}")
+
+        self.length = len(self.metric_data)
+
 
     @staticmethod
     def retrieve_metric_df(metric_file, dataset_name_to_index):
@@ -79,13 +91,6 @@ class FilterDataset(BaseWrapperDataset):
             df = pd.read_csv(metric_file)
 
         logger.info(f"Raw metric file length: {len(df)}")
-
-        # We use a single file to store metrics for all shards / datasets, but our
-        # indexing logic depends on the index having data points only from the currently processed shard.
-        curent_shard_keys = list(dataset_name_to_index.keys())
-        logger.info(f"Filtering metric files for shards: {curent_shard_keys}")
-        df = df[df['name'].isin(curent_shard_keys)]
-        logger.info(f"Metric df length after filtering: {len(df)}")
 
         return df
 
