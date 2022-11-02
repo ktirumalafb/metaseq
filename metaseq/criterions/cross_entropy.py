@@ -172,9 +172,15 @@ class CrossEntropyCriterion(BaseCriterion):
                 "ppl", lambda meters: utils.get_perplexity(meters["loss"].avg)
             )
 
-        def serialize_tensor(t, multiplier=1):
-            return [int(x * multiplier) for x in t.cpu().detach().numpy().tolist()]
+        # rounding to nearest int
+        def serialize_tensor(t):
+            return [int(x) for x in t.cpu().detach().numpy().tolist()]
 
+        # rounding to int + 5 decimal digits
+        def serialize_tensor_ppl(t):
+            return [int(x * 10000) for x in t.cpu().detach().numpy().tolist()]
+
+        # not rounding at all
         def serialize_tensor_to_numpy(t):
             return t.cpu().detach().numpy()
 
@@ -187,7 +193,7 @@ class CrossEntropyCriterion(BaseCriterion):
                             log_line = {
                                 "id": int(logging_output["id"][i]),
                                 "t":  serialize_tensor(logging_output["targets"][i]),
-                                "p":  serialize_tensor(logging_output["log_probs"][i]),
+                                "p":  serialize_tensor_ppl(logging_output["log_probs"][i]),
                                 "path_info": logging_output["path_infos"][i],
                             }
                             f.write(json.dumps(log_line) + "\n")
@@ -196,10 +202,7 @@ class CrossEntropyCriterion(BaseCriterion):
 
             if "ssl_prototypes" in data_pruning_metrics:
                 counter = 0
-                hash_targets = hash(logging_output["targets"])
-                hash_path_infos = hash("".join(logging_output["path_infos"]))
 
-                hash_to_add = str(hash_targets) + "" + str(hash_path_infos)
 
                 if not os.path.isdir(f"{data_pruning_metrics_savedir}/ssl_embeddings"):
                     os.mkdir(f"{data_pruning_metrics_savedir}/ssl_embeddings")
@@ -207,16 +210,26 @@ class CrossEntropyCriterion(BaseCriterion):
                 with open(f"{data_pruning_metrics_savedir}/ssl_embeddings/index.json", "a") as f_index_out:
 
                     for logging_output in logging_outputs:
+                        hash_targets = hash(logging_output["targets"])
+                        hash_path_infos = hash("".join(logging_output["path_infos"]))
+
+                        hash_to_add = str(hash_targets) + "" + str(hash_path_infos)
                         batch_size = logging_output["targets"].shape[0]
                         for i in range(batch_size):
 
                             num_pad = sum(int(x==1) for x in serialize_tensor(logging_output["targets"][i]))
-                            length_final = len(serialize_tensor(logging_output["log_probs"][i])),
+                            length_final = len(serialize_tensor(logging_output["log_probs"][i]))
                             
 
                             with open(f"{data_pruning_metrics_savedir}/ssl_embeddings/{counter}_emb_{hash_to_add}.npy", "wb") as embedding_out_f:
+                                # convert tensor to numpy
                                 serialized_embedding = serialize_tensor_to_numpy(logging_output["final_embedding"][i])
-                                np.save(embedding_out_f, serialized_embedding)
+
+                                # take the last word embedding as the embedding for the entire token block
+
+                                to_save_embedding = serialized_embedding[length_final - num_pad - 1]
+                                np.save(embedding_out_f, to_save_embedding)
+
 
                                 log_line = {
                                     "name":  f"{data_pruning_metrics_savedir}/ssl_embeddings/{counter}_emb_{hash_to_add}.npy",
