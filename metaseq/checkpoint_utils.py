@@ -406,7 +406,9 @@ def load_checkpoint_to_cpu(path, arg_overrides=None, load_on_all_ranks=False) ->
         local_path = PathManager.get_local_path(path)
 
     # path to checkpoint...-shared.pt
+
     paths_to_load = get_paths_to_load(local_path, suffix="shard")
+
     try:
         if len(paths_to_load) > 1:
             state = _merge_flat_fsdp_shards([torch_load_cpu(f) for f in paths_to_load])
@@ -499,6 +501,8 @@ def load_model_ensemble_and_task(
             cfg.model.model_parallel_size = 1
             cfg.common.model_parallel_size = 1
 
+            cfg.model.distributed_init_method = "tcp://localhost:18328"
+
             logger.info(f"CFG -------->>>>>>>>>>> {cfg.model}")
 
             if task is None:
@@ -513,9 +517,9 @@ def load_model_ensemble_and_task(
                 # build model for ensemble
                 model = task.build_model(cfg.model)
 
-            oproj_key = "decoder.output_projection.weight"
-            emb_key = "decoder.embed_tokens.weight"
-            state["model"][oproj_key] = state["model"][emb_key]
+            # oproj_key = "decoder.output_projection.weight"
+            # emb_key = "decoder.embed_tokens.weight"
+            # state["model"][oproj_key] = state["model"][emb_key]
 
             model.load_state_dict(state["model"], strict=strict, model_cfg=cfg.model)
 

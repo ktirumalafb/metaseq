@@ -115,6 +115,7 @@ def _infer_single_node_init(cfg: DistributedTrainingConfig):
         cfg.distributed_world_size <= torch.cuda.device_count()
     ), f"world size is {cfg.distributed_world_size} but have {torch.cuda.device_count()} available devices"
     port = random.randint(10000, 20000)
+    port = 18328
     cfg.distributed_init_method = "tcp://localhost:{port}".format(port=port)
 
 
@@ -252,7 +253,7 @@ def _spawn_helper(main, cfg, kwargs):
 
 def call_main(cfg: MetaseqConfig, main, **kwargs):
     if cfg.distributed_training.distributed_init_method is None:
-        infer_init_method(cfg.distributed_training)
+        infer_init_method(cfg.distributed_training, force_distributed=True)
 
     if cfg.distributed_training.distributed_init_method is not None:
         # distributed training
