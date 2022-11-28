@@ -65,7 +65,9 @@ class FilterDataset(BaseWrapperDataset):
         # indexing logic depends on the index having data points only from the currently processed shard.
         # So as a final pre-processing step, only include the examples from the current shard
         curent_shard_keys = list(self.dataset_name_to_index.keys())
+
         logger.info(f"Filtering metric files for shards: {curent_shard_keys}")
+
         self.metric_data = self.metric_data[self.metric_data['name'].isin(curent_shard_keys)]
         logger.info(f"Metric df length after filtering for shard: {len(self.metric_data )}")
 

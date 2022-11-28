@@ -200,7 +200,7 @@ class CrossEntropyCriterion(BaseCriterion):
                 logger.info("Done writing ppl info!")
 
 
-            if "ssl_prototypes" in data_pruning_metrics:
+            if "ssl_prototypes_compute_centroids" in data_pruning_metrics:
                 counter = 0
 
 
