@@ -411,7 +411,7 @@ class StreamingLanguageModelingTask(LegacyTask):
             else:
                 metric_df = FilterDataset.retrieve_metric_df(
                     metric_file=self.args.use_data_pruning_metrics_filepath,
-                    dataset_name_to_index=dataset_name_to_index,
+                    cur_shard_str=cur_shard_str,
                 )
                 n_metric_df = len(metric_df)
                 logger.info(f"Filtering data points - length of metric df: {n_metric_df}")

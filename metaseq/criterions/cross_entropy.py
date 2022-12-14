@@ -187,7 +187,7 @@ class CrossEntropyCriterion(BaseCriterion):
                             log_line = {
                                 "id": int(logging_output["id"][i]),
                                 "t":  serialize_tensor(logging_output["targets"][i]),
-                                "p":  serialize_tensor(logging_output["log_probs"][i]),
+                                "p":  serialize_tensor(logging_output["log_probs"][i], multiplier=10),
                                 "path_info": logging_output["path_infos"][i],
                             }
                             f.write(json.dumps(log_line) + "\n")
