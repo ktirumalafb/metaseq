@@ -61,31 +61,39 @@ class FilterDataset(BaseWrapperDataset):
         self.dataset_name_to_index = dataset_name_to_index
 
     @staticmethod
-    def retrieve_metric_df(metric_file, dataset_name_to_index):
-        assert PathManager.exists(metric_file), "Error! Provided `metric_file` is not a valid filepath"
+    def retrieve_metric_df(metric_file, cur_shard_str):
+
+        # Allow for templated metric file paths so that we don't load all data. For example:
+        # --use-data-pruning-metrics-filepath "/checkpoint/danielsimig/c4_v2/pruning_metrics/avg_ppl_improvement_125m_350m_<SHARD>.jsonl"
+        metric_file = metric_file.replace("<SHARD>", cur_shard_str)
         assert PathManager.isfile(metric_file), "Error! Provided `metric_file` is not a valid file"
         assert metric_file.endswith(".jsonl") or metric_file.endswith(".csv"), "Error! `metric_file` must be a `jsonl` file"
 
-        if metric_file.endswith(".jsonl"):
-            with open(metric_file, "r") as f:
-                lines = f.read().splitlines()
+        # We use a single file to store metrics for all shards / datasets, but our
+        # indexing logic depends on the index having data points only from the currently processed shard.
+        logger.info(f"Will filter metric file for shard {cur_shard_str}")
 
+        if metric_file.endswith(".jsonl"):
+            lines = []
+            scanned_lines = 0
+            with open(metric_file, "r") as f:
+                logger.info(f"Reading metric file: {metric_file}")
+                for line in f:
+                    json_parsed = json.loads(line[:-1])
+                    if cur_shard_str in json_parsed["name"]:
+                        lines.append(json_parsed)
+                    scanned_lines += 1
+                    if scanned_lines % 1_000_000 == 0:
+                        logger.info(f"  Scanned {scanned_lines} lines")
+
+            logger.info(f"Done processing metric file. {scanned_lines} lines scanned, {len(lines)} kept for this shard.")
             df = pd.DataFrame(lines)
-            df.columns = ['temp']
-            df['temp'].apply(json.loads)
-            df = pd.json_normalize(df['temp'].apply(json.loads))
+            logger.info("Metric DataFrame ready to use")
 
         elif metric_file.endswith(".csv"):
             df = pd.read_csv(metric_file)
-
-        logger.info(f"Raw metric file length: {len(df)}")
-
-        # We use a single file to store metrics for all shards / datasets, but our
-        # indexing logic depends on the index having data points only from the currently processed shard.
-        curent_shard_keys = list(dataset_name_to_index.keys())
-        logger.info(f"Filtering metric files for shards: {curent_shard_keys}")
-        df = df[df['name'].isin(curent_shard_keys)]
-        logger.info(f"Metric df length after filtering: {len(df)}")
+            df = df[df['name'].str.contains(cur_shard_str, regex=False)]  # Not tested
+            logger.info(f"Metric df length after filtering: {len(df)}")
 
         return df
 
