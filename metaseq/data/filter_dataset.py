@@ -80,8 +80,15 @@ class FilterDataset(BaseWrapperDataset):
         assert PathManager.isfile(metric_file), "Error! Provided `metric_file` is not a valid file"
         assert metric_file.endswith(".jsonl") or metric_file.endswith(".csv"), "Error! `metric_file` must be a `jsonl` file"
 
-        if metric_file.endswith(".jsonl"):
-            with open(metric_file, "r") as f:
+        current_shard_keys = list(dataset_name_to_index.keys())
+        assert len(current_shard_keys) == 1, "Length of current shard keys is not 0"
+
+        current_shard_key = current_shard_keys[0].split("/")[0]
+
+        shard_specific_file = metric_file.replace("all", current_shard_key)
+
+        if shard_specific_file.endswith(".jsonl"):
+            with open(shard_specific_file, "r") as f:
                 lines = f.read().splitlines()
 
             df = pd.DataFrame(lines)
@@ -89,8 +96,8 @@ class FilterDataset(BaseWrapperDataset):
             df['temp'].apply(json.loads)
             df = pd.json_normalize(df['temp'].apply(json.loads))
 
-        elif metric_file.endswith(".csv"):
-            df = pd.read_csv(metric_file)
+        elif shard_specific_file.endswith(".csv"):
+            df = pd.read_csv(shard_specific_file)
 
         logger.info(f"Raw metric file length: {len(df)}")
 

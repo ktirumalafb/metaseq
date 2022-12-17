@@ -144,7 +144,7 @@ class CrossEntropyCriterion(BaseCriterion):
         return loss, loss
 
     @staticmethod
-    def reduce_metrics(logging_outputs, data_pruning_metrics=None, data_pruning_metrics_savedir=None) -> None:
+    def reduce_metrics(logging_outputs, data_pruning_metrics=None, data_pruning_metrics_savedir=None, length_dataset=None) -> None:
         """Aggregate logging outputs from data parallel training."""
         loss_sum = sum(log.get("loss", 0) for log in logging_outputs)
         ntokens = sum(log.get("ntokens", 0) for log in logging_outputs)
@@ -201,12 +201,26 @@ class CrossEntropyCriterion(BaseCriterion):
 
 
             if "ssl_prototypes_compute_centroids" in data_pruning_metrics:
-                counter = 0
 
 
                 if not os.path.isdir(f"{data_pruning_metrics_savedir}/ssl_embeddings"):
                     os.mkdir(f"{data_pruning_metrics_savedir}/ssl_embeddings")
 
+                if not os.path.isfile(f"{data_pruning_metrics_savedir}/ssl_embeddings/counter.txt"):
+                    with open(f"{data_pruning_metrics_savedir}/ssl_embeddings/counter.txt", "w") as f_counter:
+                        f_counter.write("0")
+
+                # counter for where you are in the memmap
+                counter = int(open(f"{data_pruning_metrics_savedir}/ssl_embeddings/counter.txt", "r").readlines()[0])
+
+                if not os.path.isfile(f"{data_pruning_metrics_savedir}/ssl_embeddings/embedding.npy"):
+                    # Create the memmap file in w+ mode
+                    embedding_out_file = np.memmap(f"{data_pruning_metrics_savedir}/ssl_embeddings/embedding.npy", dtype='float32', mode='w+', shape=(length_dataset,768))
+                else:
+                    # Append to existing file
+                    embedding_out_file = np.memmap(f"{data_pruning_metrics_savedir}/ssl_embeddings/embedding.npy", dtype='float32', mode='r+', shape=(length_dataset,768))
+
+                
                 with open(f"{data_pruning_metrics_savedir}/ssl_embeddings/index.json", "a") as f_index_out:
 
                     for logging_output in logging_outputs:
@@ -215,34 +229,41 @@ class CrossEntropyCriterion(BaseCriterion):
 
                         hash_to_add = str(hash_targets) + "" + str(hash_path_infos)
                         batch_size = logging_output["targets"].shape[0]
+
+                        num_adding = logging_output["final_embedding"].shape[0]
+                        assert batch_size == num_adding
+
+                        # Write the embedding
+                        # embedding_out_file[counter: counter+num_adding] = serialize_tensor_to_numpy(logging_output["final_embedding"])
+
+                        # Write the metadata
                         for i in range(batch_size):
-
                             num_pad = sum(int(x==1) for x in serialize_tensor(logging_output["targets"][i]))
-                            length_final = len(serialize_tensor(logging_output["log_probs"][i]))
+                            length_final = len(serialize_tensor(logging_output["log_probs"][i])) 
                             
+                            # If the last 3 tokens were pad, then we want arr[-4] to get the lost non-pad token embedding
+                            sub_from_end = -1*num_pad - 1
+                            embedding_out_file[counter+i] = serialize_tensor_to_numpy(logging_output["final_embedding"][i, sub_from_end])
+       
+                            log_line = {
+                                "index_in_arr":  counter + i,
+                                "path_info": logging_output["path_infos"][i],
+                                "length": length_final,
+                                "num_pad": num_pad
+                            }
+                            f_index_out.write(json.dumps(log_line) + "\n")
 
-                            with open(f"{data_pruning_metrics_savedir}/ssl_embeddings/{counter}_emb_{hash_to_add}.npy", "wb") as embedding_out_f:
-                                # convert tensor to numpy
-                                serialized_embedding = serialize_tensor_to_numpy(logging_output["final_embedding"][i])
+                        # Update the counter
+                        counter += num_adding
 
-                                # take the last word embedding as the embedding for the entire token block
-
-                                to_save_embedding = serialized_embedding[length_final - num_pad - 1]
-                                np.save(embedding_out_f, to_save_embedding)
-
-
-                                log_line = {
-                                    "name":  f"{data_pruning_metrics_savedir}/ssl_embeddings/{counter}_emb_{hash_to_add}.npy",
-                                    "path_info": logging_output["path_infos"][i],
-                                    "length": length_final,
-                                    "num_pad": num_pad
-                                }
-                                f_index_out.write(json.dumps(log_line) + "\n")
-
-                            counter += 1
 
 
                     logger.info("Done writing embedding info!")
+                
+                # After we are done, update the counter in the file
+                with open(f"{data_pruning_metrics_savedir}/ssl_embeddings/counter.txt", "w") as f_counter:
+                    f_counter.write(str(counter))
+  
 
             if "el2n" in data_pruning_metrics:
                 with open(f"{data_pruning_metrics_savedir}/el2n.json", "a") as f:

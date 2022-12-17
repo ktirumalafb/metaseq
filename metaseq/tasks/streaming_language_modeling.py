@@ -130,7 +130,7 @@ class StreamingLanguageModelingConfig(MetaseqDataclass):
     )
 
     prune_valid_frac_data: Optional[float] = field(
-        default=None,
+        default=1.0,
         metadata={"help": "What fraction of training data to keep with data pruning (valid set)"},
     )
 

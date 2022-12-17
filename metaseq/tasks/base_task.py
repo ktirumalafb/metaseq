@@ -485,7 +485,12 @@ class BaseTask(object):
 
         # This should only be activated if we are doing data pruning for language modeling evaluation
         if self.args._name == "streaming_language_modeling" and ('compute_data_pruning_metrics' in self.args and self.args['compute_data_pruning_metrics']):
-            criterion.__class__.reduce_metrics(logging_outputs, self.data_pruning_metrics, self.data_pruning_savedir)
+            criterion.__class__.reduce_metrics(
+                logging_outputs, 
+                self.data_pruning_metrics, 
+                self.data_pruning_savedir,
+                len(self.datasets['train'].dataset)
+                )
         else:
             criterion.__class__.reduce_metrics(logging_outputs)
 
