@@ -124,6 +124,11 @@ class StreamingLanguageModelingConfig(MetaseqDataclass):
         metadata={"help": "What fraction of training data to keep with data pruning"},
     )
 
+    random_include_examples_back: Optional[float] = field(
+        default=None,
+        metadata={"help": "Percentage of random examples to include back in when using `FilterDataset`"},
+    )
+
     # TODO common vars below add to parent
     seed: int = II("common.seed")
     batch_size: Optional[int] = II("dataset.batch_size")
@@ -219,6 +224,7 @@ class StreamingLanguageModelingTask(LegacyTask):
 
         self.compute_data_pruning_metrics = compute_data_pruning_metrics
         self.use_data_pruning_metrics = use_data_pruning_metrics
+        
         
         # confirm that metaseq dictionary and BPE have matching special symbols
         assert self.dictionary.bos_index == 0
@@ -409,10 +415,12 @@ class StreamingLanguageModelingTask(LegacyTask):
                     seed=self.args.seed, 
                     frac_data=self.args.use_data_pruning_metrics_frac_data)
             else:
+
                 metric_df = FilterDataset.retrieve_metric_df(
                     metric_file=self.args.use_data_pruning_metrics_filepath,
                     cur_shard_str=cur_shard_str,
                 )
+
                 n_metric_df = len(metric_df)
                 logger.info(f"Filtering data points - length of metric df: {n_metric_df}")
                 # If len(metric_df) < len(dataset), then not every
@@ -423,6 +431,7 @@ class StreamingLanguageModelingTask(LegacyTask):
                     frac_data=self.args.use_data_pruning_metrics_frac_data, 
                     metric_data=metric_df,
                     dataset_name_to_index=dataset_name_to_index,
+                    random_include_examples_back=self.args.random_include_examples_back
                 )
             new_len_dataset = len(dataset)
             logger.info(f"Length of new dataset is: {new_len_dataset}")

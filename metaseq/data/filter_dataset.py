@@ -37,20 +37,32 @@ class FilterDataset(BaseWrapperDataset):
 
     """
 
-    def __init__(self, dataset, frac_data, metric_data, dataset_name_to_index):
+    def __init__(self, dataset, frac_data, metric_data, dataset_name_to_index, random_include_examples_back):
         super().__init__(dataset)
         assert 0.0 <= frac_data <= 1.0
+
+        if random_include_examples_back is not None:
+            assert 0.0 <= random_include_examples_back <= 1.0
+            
         self.frac_data = frac_data
         self.concat_dataset = dataset
         self.metric_data = metric_data
-
 
         # We only ever include stuff that is in metric_data. If our actual training set is a superset - we don't care.
         limit = int(np.ceil(len(self.metric_data) * self.frac_data))
 
         self.metric_data.sort_values('metric', inplace=True, ascending=False)
+
+        if random_include_examples_back is not None:
+            # randomly include `random_include_examples_back` of the other examples back
+            sampled_df = self.metric_data[limit:].sample(frac=random_include_examples_back)
+
         self.metric_data = self.metric_data[:limit]
 
+        if random_include_examples_back is not None:
+            # add the sampled df bac
+            self.metric_data = pd.concat([self.metric_data, sampled_df])
+        
         # If there are a subset of data points in the csv file, then just train on those data points
         # otherwise, take the limit defined by `frac_data`
         self.length = len(self.metric_data)
@@ -93,7 +105,7 @@ class FilterDataset(BaseWrapperDataset):
         elif metric_file.endswith(".csv"):
             df = pd.read_csv(metric_file)
             df = df[df['name'].str.contains(cur_shard_str, regex=False)]  # Not tested
-            logger.info(f"Metric df length after filtering: {len(df)}")
+            logger.info(f"Metric df length after filtering for shard_str: {len(df)}")
 
         return df
 
