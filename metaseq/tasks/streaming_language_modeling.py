@@ -129,6 +129,17 @@ class StreamingLanguageModelingConfig(MetaseqDataclass):
         metadata={"help": "Percentage of random examples to include back in when using `FilterDataset`"},
     )
 
+    # valid pruning files
+    prune_valid_file_path: Optional[str] = field(
+        default=None,
+        metadata={"help": "Filepath containing per-document metrics that represent document difficulty (valid set)"},
+    )
+
+    prune_valid_frac_data: Optional[float] = field(
+        default=1.0,
+        metadata={"help": "What fraction of training data to keep with data pruning (valid set)"},
+    )
+
     # TODO common vars below add to parent
     seed: int = II("common.seed")
     batch_size: Optional[int] = II("dataset.batch_size")
@@ -205,6 +216,8 @@ class StreamingLanguageModelingTask(LegacyTask):
         self.compute_data_pruning_metrics = False
         self.use_data_pruning_metrics = False
 
+        
+
         # If one of these flags are turned on, the other must be turned off
         if (use_data_pruning_metrics) or (compute_data_pruning_metrics):
             assert use_data_pruning_metrics != compute_data_pruning_metrics, "Error: only one of `--use-data-pruning-metrics` and `--compute-data-pruning-metrics` should be true"
@@ -225,7 +238,9 @@ class StreamingLanguageModelingTask(LegacyTask):
         self.compute_data_pruning_metrics = compute_data_pruning_metrics
         self.use_data_pruning_metrics = use_data_pruning_metrics
         
-        
+        self.prune_valid_file_path = self.args.prune_valid_file_path
+        self.prune_valid_frac_data = self.args.prune_valid_frac_data
+
         # confirm that metaseq dictionary and BPE have matching special symbols
         assert self.dictionary.bos_index == 0
         assert self.tokenizer.id_to_token(0) in {"<BOS>", "<s>"}
@@ -436,6 +451,33 @@ class StreamingLanguageModelingTask(LegacyTask):
             new_len_dataset = len(dataset)
             logger.info(f"Length of new dataset is: {new_len_dataset}")
 
+        if "valid" in split and (self.prune_valid_file_path is not None):
+            valid_set_name = split.split("/")[-1]
+            metric_path_custom = os.path.join(self.prune_valid_file_path, valid_set_name, "no_class_balancing/delta_ppl.csv")
+
+            if not os.path.isfile(metric_path_custom):
+                print(f"For valid set {split} could not find a matching csv at {metric_path_custom}")
+            else:
+                metric_df = FilterDataset.retrieve_metric_df(
+                    metric_file=metric_path_custom,
+                    cur_shard_str="00000",
+                )
+                n_metric_df = len(metric_df)
+                n_original_dataset = len(dataset)
+                logger.info(f"Filtering data points - original length of metric df: {n_metric_df}")
+                logger.info(f"Filtering data points - original length of dataset: {n_original_dataset}")
+
+                # If len(metric_df) < len(dataset), then not every
+                # document has a computed metric, so we should not
+                # be pruning
+                dataset = FilterDataset(
+                    dataset=dataset, 
+                    frac_data=self.prune_valid_frac_data, 
+                    metric_data=metric_df,
+                    dataset_name_to_index=dataset_name_to_index,
+                )
+                new_len_dataset = len(dataset)
+                logger.info(f"Length of new dataset is: {new_len_dataset}")
 
         # shuffle order across epochs
         dataset = StreamingShuffleDataset(dataset, seed=self.args.seed)

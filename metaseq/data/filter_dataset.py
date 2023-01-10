@@ -37,7 +37,7 @@ class FilterDataset(BaseWrapperDataset):
 
     """
 
-    def __init__(self, dataset, frac_data, metric_data, dataset_name_to_index, random_include_examples_back):
+    def __init__(self, dataset, frac_data, metric_data, dataset_name_to_index, random_include_examples_back=None):
         super().__init__(dataset)
         assert 0.0 <= frac_data <= 1.0
 
@@ -55,6 +55,7 @@ class FilterDataset(BaseWrapperDataset):
 
         if random_include_examples_back is not None:
             # randomly include `random_include_examples_back` of the other examples back
+            logger.info(f"Randomly throwing back {random_include_examples_back} of examples")
             sampled_df = self.metric_data[limit:].sample(frac=random_include_examples_back)
 
         self.metric_data = self.metric_data[:limit]

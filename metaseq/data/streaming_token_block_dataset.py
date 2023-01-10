@@ -135,7 +135,9 @@ def yield_single_sentences_pad_8(iterable, block_size, drop_last, padding_idx):
 
     for idx, tupl in enumerate(iterable):
         item = tupl["item"]
-        path_info = tupl["sp_id"]
+        path_info = None
+        if "sp_id" in tupl:
+            path_info = tupl["sp_id"]
 
         cur_block = []
         cur_block_ids = []
@@ -158,12 +160,13 @@ def yield_single_sentences_pad_8(iterable, block_size, drop_last, padding_idx):
         cur_block.append(padding)
 
         cur_block_ids.append(idx)
-        cur_path_info_arr.append(path_info)
+        if path_info is not None:
+            cur_path_info_arr.append(path_info)
 
         yield {
             "ids": torch.LongTensor(cur_block_ids),
             "block": torch.cat(cur_block),
-            "path_infos": cur_path_info_arr
+            "path_infos": cur_path_info_arr if len(cur_path_info_arr) > 0 else None
         }
 
 
