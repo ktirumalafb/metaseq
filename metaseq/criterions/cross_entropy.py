@@ -145,7 +145,14 @@ class CrossEntropyCriterion(BaseCriterion):
 
     @staticmethod
     def reduce_metrics(logging_outputs, data_pruning_metrics=None, data_pruning_metrics_savedir=None, length_dataset=None) -> None:
-        """Aggregate logging outputs from data parallel training."""
+        """Aggregate logging outputs from data parallel training.
+        
+        data_pruning_metrics: str = list of pruning metrics to compute
+        data_pruning_metrics_savedir: str = filename to save data pruning metrics in
+        length_dataset: int = length of total dataset in training run 
+            (this is used for creating embedding file for saving ssl prototypes embeddings; to create
+            one file and write with memmap, we need to know in advance how big the file is)
+        """
         loss_sum = sum(log.get("loss", 0) for log in logging_outputs)
         ntokens = sum(log.get("ntokens", 0) for log in logging_outputs)
         sample_size = sum(log.get("sample_size", 0) for log in logging_outputs)
@@ -219,12 +226,15 @@ class CrossEntropyCriterion(BaseCriterion):
                 # counter for where you are in the memmap
                 counter = int(open(f"{data_pruning_metrics_savedir}/ssl_embeddings/counter.txt", "r").readlines()[0])
 
+                # guess the model embedding size by looking at first output for the batch
+                model_embedding_size = logging_outputs[0]["final_embedding"].shape[1]
+
                 if not os.path.isfile(f"{data_pruning_metrics_savedir}/ssl_embeddings/embedding.npy"):
                     # Create the memmap file in w+ mode
-                    embedding_out_file = np.memmap(f"{data_pruning_metrics_savedir}/ssl_embeddings/embedding.npy", dtype='float32', mode='w+', shape=(length_dataset,768))
+                    embedding_out_file = np.memmap(f"{data_pruning_metrics_savedir}/ssl_embeddings/embedding.npy", dtype='float32', mode='w+', shape=(length_dataset,model_embedding_size))
                 else:
                     # Append to existing file
-                    embedding_out_file = np.memmap(f"{data_pruning_metrics_savedir}/ssl_embeddings/embedding.npy", dtype='float32', mode='r+', shape=(length_dataset,768))
+                    embedding_out_file = np.memmap(f"{data_pruning_metrics_savedir}/ssl_embeddings/embedding.npy", dtype='float32', mode='r+', shape=(length_dataset,model_embedding_size))
 
                 
                 with open(f"{data_pruning_metrics_savedir}/ssl_embeddings/index.json", "a") as f_index_out:
