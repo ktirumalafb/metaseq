@@ -227,7 +227,9 @@ class CrossEntropyCriterion(BaseCriterion):
                 counter = int(open(f"{data_pruning_metrics_savedir}/ssl_embeddings/counter.txt", "r").readlines()[0])
 
                 # guess the model embedding size by looking at first output for the batch
-                model_embedding_size = logging_outputs[0]["final_embedding"].shape[1]
+                # model_embedding_size = logging_outputs[0]["final_embedding"].shape[1]
+
+                model_embedding_size = logging_outputs[0]["final_embedding"].shape[-1]
 
                 if not os.path.isfile(f"{data_pruning_metrics_savedir}/ssl_embeddings/embedding.npy"):
                     # Create the memmap file in w+ mode
