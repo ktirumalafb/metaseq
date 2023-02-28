@@ -559,6 +559,12 @@ class Trainer(object):
 
         return extra_state
 
+    def repeated_data_get_epoch_number(self, true_epoch, repeat_data_epoch_number):
+        if true_epoch % repeat_data_epoch_number == 0:
+            return repeat_data_epoch_number
+        else:
+            return true_epoch % repeat_data_epoch_number
+
     def get_train_iterator(
         self,
         epoch,
@@ -569,6 +575,14 @@ class Trainer(object):
     ):
         """Return an EpochBatchIterator over the training set for a given epoch."""
         logger.info("loading train data for epoch {}".format(epoch))
+
+
+        if self.cfg.task.repeat_data_epoch_number > 0:
+            # Indicates we will be repeating data at some point
+            epoch = self.repeated_data_get_epoch_number(epoch, self.cfg.task.repeat_data_epoch_number)
+            logger.info(f"Detected non zero repeating number with flag `repeat_data_epoch_number`: {self.cfg.task.repeat_data_epoch_number}")
+            logger.info("real epoch number loading data from {}".format(epoch))     
+
         self.task.load_dataset(
             self.cfg.dataset.train_subset,
             epoch=epoch,

@@ -140,6 +140,12 @@ class StreamingLanguageModelingConfig(MetaseqDataclass):
         metadata={"help": "What fraction of training data to keep with data pruning (valid set)"},
     )
 
+    # matched iteration experiments
+    repeat_data_epoch_number: Optional[int] = field(
+        default=-1,
+        metadata={"help": "What epoch number (shard count) do we start repeating data with"},
+    )
+
     # TODO common vars below add to parent
     seed: int = II("common.seed")
     batch_size: Optional[int] = II("dataset.batch_size")
