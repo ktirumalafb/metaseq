@@ -88,6 +88,13 @@ class TransformerDecoder(BaseDecoder):
         device = torch.cuda.current_device() if initialize_params_on_gpu else None
         dtype = utils.get_model_init_dtype(args)
 
+
+        self.project_in_dim = (
+            Linear(512, self.embed_dim, bias=False, dtype=dtype)
+            if self.embed_dim != 512
+            else None
+        )
+
         self.use_alibi: bool = getattr(args, "alibi", False)
         self.self_attn_doc_sep: int = getattr(
             args, "self_attn_doc_sep", UNSPECIFIED_DOC_SEP
@@ -156,11 +163,20 @@ class TransformerDecoder(BaseDecoder):
 
         self.num_layers = len(self.layers)
 
-        self.layer_norm = LayerNorm(
-            self.embed_dim,
-            elementwise_affine=not getattr(args, "disable_affine_ln", False),
+        # De-activate the final layer norm
+        self.layer_norm = None
+        # self.layer_norm = LayerNorm(
+        #     self.embed_dim,
+        #     elementwise_affine=not getattr(args, "disable_affine_ln", False),
+        # )
+        # self.layer_norm.to(device).to(dtype)
+
+
+        self.project_out_dim = (
+            Linear(self.embed_dim, 512, bias=False, dtype=dtype)
+            if self.embed_dim != 512
+            else None
         )
-        self.layer_norm.to(device).to(dtype)
 
         self.output_projection = None
         if self.share_input_output_embed:
@@ -174,7 +190,8 @@ class TransformerDecoder(BaseDecoder):
             self.output_projection.weight = self.embed_tokens.weight
         else:
             self.output_projection = Linear(
-                self.embed_dim,
+                # self.embed_dim,
+                512,
                 len(dictionary),
                 bias=False,
                 initialize_params_on_gpu=initialize_params_on_gpu,
@@ -327,6 +344,9 @@ class TransformerDecoder(BaseDecoder):
 
         x = embed = self.embed_scale * token_embedding
 
+        if self.project_in_dim is not None:
+            x = self.project_in_dim(x)
+
         if positions is not None:
             x += positions
 
@@ -430,6 +450,9 @@ class TransformerDecoder(BaseDecoder):
 
         if self.layer_norm is not None:
             x = self.layer_norm(x)
+
+        if self.project_out_dim is not None:
+            x = self.project_out_dim(x)
 
         # Returned x is T x B x C here, as sequence_parallel requires T to be first dim
         return x, {"inner_states": inner_states}

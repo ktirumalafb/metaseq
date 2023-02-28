@@ -15,7 +15,8 @@ from metaseq.data import data_utils
 from metaseq.distributed import utils as distributed_utils
 import time
 
-from typing import Union, List, Iterable, Tuple, TypedDict, Literal
+from typing import Union, List, Iterable, Tuple
+from typing_extensions import TypedDict, Literal
 
 from multiprocessing import Array, Lock
 from contextlib import contextmanager

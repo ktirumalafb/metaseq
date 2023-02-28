@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import shutil
 
 import torch
-from omegaconf import OmegaConf
+from omegaconf import OmegaConf,open_dict
 
 from metaseq.dataclass.configs import CheckpointConfig
 from metaseq.dataclass.utils import overwrite_args_by_name
@@ -511,6 +511,12 @@ def load_model_ensemble_and_task(
             if emb_key in state["model"] and oproj_key not in state["model"]:
                 state["model"][oproj_key] = state["model"][emb_key]
 
+            cfg.model.model_parallel_size = 1
+            cfg.common.model_parallel_size = 1
+
+            # with open_dict(cfg):
+            #     cfg.model.disable_affine_ln = True
+
             if task is None:
                 task = tasks.setup_task(cfg.task)
 
@@ -522,6 +528,10 @@ def load_model_ensemble_and_task(
             else:
                 # build model for ensemble
                 model = task.build_model(cfg.model)
+
+            oproj_key = "decoder.output_projection.weight"
+            emb_key = "decoder.embed_tokens.weight"
+            state["model"][oproj_key] = state["model"][emb_key]
 
             model.load_state_dict(state["model"], strict=strict)
             logger.info("Done loading state dict")
