@@ -22,6 +22,7 @@ from metaseq.data import (
     PartitionedStreamingDataset,
     ResamplingDataset,
     StreamingSrcTgtDataset,
+    FilterDataset,
     data_utils,
     iterators,
 )
@@ -142,6 +143,54 @@ class StreamingLanguageModelingConfig(MetaseqDataclass):
             "For FIM it's unclear whether or not they allow this."
         },
     )
+
+        # Flags for COMPUTING per-document metrics
+    compute_data_pruning_metrics: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "Name of metrics being used for data pruning (comma-separated list)"
+        },
+    )
+
+    compute_data_pruning_metrics_savedir: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "Directory to save all compute data pruning metrics"
+        }
+    )
+
+    # Flags for USING computed metrics to prune training data
+    use_data_pruning_metrics: Optional[bool] = field(
+        default=False,
+        metadata={"help": "Prune data using precomputed metrics, defined with flag `prune_data_metrics_filepath`"},
+    )
+
+    use_data_pruning_metrics_filepath: Optional[str] = field(
+        default=None,
+        metadata={"help": "Filepath containing per-document metrics that represent document difficulty"},
+    )
+
+    use_data_pruning_metrics_frac_data: Optional[float] = field(
+        default=1.0,
+        metadata={"help": "What fraction of training data to keep with data pruning"},
+    )
+
+    random_include_examples_back: Optional[float] = field(
+        default=None,
+        metadata={"help": "Percentage of random examples to include back in when using `FilterDataset`"},
+    )
+
+    # valid pruning files
+    prune_valid_file_path: Optional[str] = field(
+        default=None,
+        metadata={"help": "Filepath containing per-document metrics that represent document difficulty (valid set)"},
+    )
+
+    prune_valid_frac_data: Optional[float] = field(
+        default=1.0,
+        metadata={"help": "What fraction of training data to keep with data pruning (valid set)"},
+    )
+
     # TODO common vars below add to parent
     seed: int = II("common.seed")
     batch_size: Optional[int] = II("dataset.batch_size")
@@ -224,6 +273,35 @@ class StreamingLanguageModelingTask(LegacyTask):
             self.dictionary.pad_to_multiple_(final_vocab_size)
         else:
             self.dictionary.pad_to_multiple_(8)
+
+        # Data pruning flags
+        use_data_pruning_metrics = self.args.use_data_pruning_metrics
+        compute_data_pruning_metrics = self.args.compute_data_pruning_metrics is not None
+
+        self.compute_data_pruning_metrics = False
+        self.use_data_pruning_metrics = False
+        # If one of these flags are turned on, the other must be turned off
+        if (use_data_pruning_metrics) or (compute_data_pruning_metrics):
+            assert use_data_pruning_metrics != compute_data_pruning_metrics, "Error: only one of `--use-data-pruning-metrics` and `--compute-data-pruning-metrics` should be true"
+
+            if compute_data_pruning_metrics:
+                self.compute_data_pruning_metrics = True
+                
+                self.data_pruning_metrics = self.args.compute_data_pruning_metrics.split(",")
+                self.data_pruning_savedir = self.args.compute_data_pruning_metrics_savedir
+            else:
+                self.use_data_pruning_metrics = True
+                
+                assert self.args.use_data_pruning_metrics_filepath is not None, "Please specify filepath to computed metrics via `--use-data-pruning-metrics-filepath`"
+                self.use_data_pruning_metrics_filepath = self.args.use_data_pruning_metrics_filepath
+                self.use_data_pruning_metrics_frac_data = self.args.use_data_pruning_metrics_frac_data
+
+
+        self.compute_data_pruning_metrics = compute_data_pruning_metrics
+        self.use_data_pruning_metrics = use_data_pruning_metrics
+        
+        self.prune_valid_file_path = self.args.prune_valid_file_path
+        self.prune_valid_frac_data = self.args.prune_valid_frac_data
 
     def _check_cm3_parameterization(self):
         assert (
@@ -391,6 +469,19 @@ class StreamingLanguageModelingTask(LegacyTask):
 
         # concatenate any jsonl files that are part of the shard
         datasets, corpora = [], []
+
+        # maintain index of dataset name path, to index
+        dataset_name_to_index = {}
+        dataset_index_counter = 0
+
+        dataset_index_to_name = {}
+
+        # Don't include path infos in dataset if you are
+        # not computing data pruning metrics or using
+        # data pruning metrics
+        include_path_infos_in_jsonl_dataset = (self.args.use_data_pruning_metrics) or (self.args.compute_data_pruning_metrics is not None)
+
+
         data_subshard_count = self.args.data_subshard_count if split == "train" else 1
         for file in sorted(
             os.listdir(os.path.join(self.args.data, split, cur_shard_str))
@@ -406,12 +497,67 @@ class StreamingLanguageModelingTask(LegacyTask):
                 )
             )
             corpora.append(os.path.splitext(file)[0])
+            dataset_name_to_index[f"{cur_shard_str}/{file}"] = dataset_index_counter
+            dataset_index_to_name[dataset_index_counter] = os.path.join(self.args.data, split, cur_shard_str, file)
+            dataset_index_counter += 1
         assert len(datasets) > 0
 
         if self.args.multicorpus_sampling_alpha != 1:
             datasets = self._alpha_sampling(datasets, corpora, epoch)
 
         dataset = torch.utils.data.ConcatDataset(datasets)
+
+        # Filter by metric (only on train dataset)
+        if split == "train" and self.args.use_data_pruning_metrics:
+            # This method should only be called *once* when we 
+            # are processing the combined `train` dataset
+            metric_df = FilterDataset.retrieve_metric_df(
+                metric_file=self.args.use_data_pruning_metrics_filepath,
+                cur_shard_str=cur_shard_str,
+            )
+
+            n_metric_df = len(metric_df)
+            logger.info(f"Filtering data points - length of metric df: {n_metric_df}")
+            # If len(metric_df) < len(dataset), then not every
+            # document has a computed metric, so we should not
+            # be pruning
+            dataset = FilterDataset(
+                dataset, 
+                frac_data=self.args.use_data_pruning_metrics_frac_data, 
+                metric_data=metric_df,
+                dataset_name_to_index=dataset_name_to_index,
+                random_include_examples_back=self.args.random_include_examples_back
+            )
+            new_len_dataset = len(dataset)
+            logger.info(f"Length of new dataset is: {new_len_dataset}")
+
+        if "valid" in split and (self.prune_valid_file_path is not None):
+            valid_set_name = split.split("/")[-1]
+            metric_path_custom = os.path.join(self.prune_valid_file_path, valid_set_name, "no_class_balancing/delta_ppl.csv")
+
+            if not os.path.isfile(metric_path_custom):
+                print(f"For valid set {split} could not find a matching csv at {metric_path_custom}")
+            else:
+                metric_df = FilterDataset.retrieve_metric_df(
+                    metric_file=metric_path_custom,
+                    cur_shard_str="00000",
+                )
+                n_metric_df = len(metric_df)
+                n_original_dataset = len(dataset)
+                logger.info(f"Filtering data points - original length of metric df: {n_metric_df}")
+                logger.info(f"Filtering data points - original length of dataset: {n_original_dataset}")
+
+                # If len(metric_df) < len(dataset), then not every
+                # document has a computed metric, so we should not
+                # be pruning
+                dataset = FilterDataset(
+                    dataset=dataset, 
+                    frac_data=self.prune_valid_frac_data, 
+                    metric_data=metric_df,
+                    dataset_name_to_index=dataset_name_to_index,
+                )
+                new_len_dataset = len(dataset)
+                logger.info(f"Length of new dataset is: {new_len_dataset}")
 
         # chunk into blocks of tokens
         if self.has_cm3:
