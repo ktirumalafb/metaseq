@@ -191,6 +191,11 @@ class StreamingLanguageModelingConfig(MetaseqDataclass):
         metadata={"help": "What fraction of training data to keep with data pruning (valid set)"},
     )
 
+    multidataset_prune_list: Optional[str] = field(
+        default=None,
+        metadata={"help": "comma-separated list of dataset names to include in pruning logic (every other dataset will be excluded)"}
+    )
+
     # TODO common vars below add to parent
     seed: int = II("common.seed")
     batch_size: Optional[int] = II("dataset.batch_size")
@@ -505,6 +510,13 @@ class StreamingLanguageModelingTask(LegacyTask):
         if self.args.multicorpus_sampling_alpha != 1:
             datasets = self._alpha_sampling(datasets, corpora, epoch)
 
+
+        if split == "train" and self.args.multidataset_prune_list is not None:
+
+            list_datasets = self.args.multidataset_prune_list.strip().split(",")
+            for dataset_name_to_prune in list_datasets:
+                assert dataset_name_to_prune in dataset_name_to_index.keys(), f"{dataset_name_to_prune} given in flag --multidataset-prune-list is not available in original dataset"
+
         dataset = torch.utils.data.ConcatDataset(datasets)
 
         # Filter by metric (only on train dataset)
@@ -516,8 +528,6 @@ class StreamingLanguageModelingTask(LegacyTask):
                 cur_shard_str=cur_shard_str,
             )
 
-            n_metric_df = len(metric_df)
-            logger.info(f"Filtering data points - length of metric df: {n_metric_df}")
             # If len(metric_df) < len(dataset), then not every
             # document has a computed metric, so we should not
             # be pruning
@@ -526,10 +536,12 @@ class StreamingLanguageModelingTask(LegacyTask):
                 frac_data=self.args.use_data_pruning_metrics_frac_data, 
                 metric_data=metric_df,
                 dataset_name_to_index=dataset_name_to_index,
-                random_include_examples_back=self.args.random_include_examples_back
+                random_include_examples_back=self.args.random_include_examples_back,
+                multidataset_prune_list=self.args.multidataset_prune_list,
+
             )
             new_len_dataset = len(dataset)
-            logger.info(f"Length of new dataset is: {new_len_dataset}")
+            logger.info(f"Length of final dataset is: {new_len_dataset}")
 
         if "valid" in split and (self.prune_valid_file_path is not None):
             valid_set_name = split.split("/")[-1]

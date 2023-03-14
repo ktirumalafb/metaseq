@@ -34,7 +34,7 @@ class FilterDataset(BaseWrapperDataset):
     where `metric` should be between 0.0 and 1.0 as described above
     """
 
-    def __init__(self, dataset, frac_data, metric_data, dataset_name_to_index, random_include_examples_back=None):
+    def __init__(self, dataset, frac_data, metric_data, dataset_name_to_index, random_include_examples_back=None, multidataset_prune_list=None):
         super().__init__(dataset)
         assert 0.0 <= frac_data <= 1.0
 
@@ -45,27 +45,58 @@ class FilterDataset(BaseWrapperDataset):
         self.concat_dataset = dataset
         self.metric_data = metric_data
 
-        # We only ever include stuff that is in metric_data. If our actual training set is a superset - we don't care.
-        limit = int(np.ceil(len(self.metric_data) * self.frac_data))
+        if multidataset_prune_list:
+            multidataset_prune_list = multidataset_prune_list.strip().split(",")
 
-        self.metric_data.sort_values('metric', inplace=True, ascending=False)
+            # Find the portion of the dataframe to include
+            indices_to_prune = self.metric_data['name'].isin(multidataset_prune_list)
+            filtered_dataset_name_df = self.metric_data.loc[indices_to_prune].copy()
+            len_dataset_to_prune = len(filtered_dataset_name_df)
 
-        if random_include_examples_back is not None:
-            # randomly include `random_include_examples_back` of the other examples back
-            logger.info(f"Randomly throwing back {random_include_examples_back} of examples")
-            sampled_df = self.metric_data[limit:].sample(frac=random_include_examples_back)
+            logger.info(f"(multidataset_prune_list): length of original dataset filtered by multidataset_prune_list {len_dataset_to_prune}")
 
-        self.metric_data = self.metric_data[:limit]
+            # Lump all the datasets with names in `multidataset_prune_list` together and prune
+            limit = int(np.ceil(len(filtered_dataset_name_df) * self.frac_data))
+            filtered_dataset_name_df.sort_values('metric', inplace=True, ascending=False)
+            filtered_dataset_name_df = filtered_dataset_name_df[:limit]
 
-        if random_include_examples_back is not None:
-            # add the sampled df bac
-            self.metric_data = pd.concat([self.metric_data, sampled_df])
+            logger.info(f"(multidataset_prune_list): length of new dataset filtered by multidataset_prune_list {len_dataset_to_prune}")
+
+            if random_include_examples_back is not None:
+                # randomly include `random_include_examples_back` of the other examples back
+                logger.info(f"Randomly throwing back {random_include_examples_back} of examples")
+                sampled_df = filtered_dataset_name_df[limit:].sample(frac=random_include_examples_back)
+                filtered_dataset_name_df = pd.concat([filtered_dataset_name_df, sampled_df])
+                logger.info(f"After throwing back random examples, length of new dataset is {len(filtered_dataset_name_df)}")
+
+
+            # Concatenate with all the datasets with names not in `multidataset_prune_list`
+            self.metric_data = pd.concat([filtered_dataset_name_df, self.metric_data.loc[~indices_to_prune]])
+
+        else:
+            # We don't need to worry about dataset names and can sort everything in the csv file
+
+            # We only ever include stuff that is in metric_data. If our actual training set is a superset - we don't care.
+            limit = int(np.ceil(len(self.metric_data) * self.frac_data))
+
+            self.metric_data.sort_values('metric', inplace=True, ascending=False)
+
+            if random_include_examples_back is not None:
+                # randomly include `random_include_examples_back` of the other examples back
+                logger.info(f"Randomly throwing back {random_include_examples_back} of examples")
+                sampled_df = self.metric_data[limit:].sample(frac=random_include_examples_back)
+
+            self.metric_data = self.metric_data[:limit]
+
+            if random_include_examples_back is not None:
+                # add the sampled df bac
+                self.metric_data = pd.concat([self.metric_data, sampled_df])
         
         # If there are a subset of data points in the csv file, then just train on those data points
         # otherwise, take the limit defined by `frac_data`
         self.length = len(self.metric_data)
-        logger.info(f"Concat dataset length: {len(self.concat_dataset)}")
-        logger.info(f"Filter dataset length: {len(self.metric_data)} * {self.frac_data} = {self.length}")
+        logger.info(f"Original Concat dataset length: {len(self.concat_dataset)}")
+        logger.info(f"Final dataset length: {self.length}")
 
 
         self.dataset_name_to_index = dataset_name_to_index
