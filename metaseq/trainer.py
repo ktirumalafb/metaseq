@@ -649,6 +649,8 @@ class Trainer(object):
     ):
         """Return an EpochBatchIterator over the training set for a given epoch."""
         logger.info("loading train data for epoch {}".format(epoch))
+        logger.info("the split is {}".format(self.cfg.dataset.train_subset))
+
         self.task.load_dataset(
             self.cfg.dataset.train_subset,
             epoch=epoch,
