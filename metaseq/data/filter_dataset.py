@@ -34,7 +34,7 @@ class FilterDataset(BaseWrapperDataset):
     where `metric` should be between 0.0 and 1.0 as described above
     """
 
-    def __init__(self, dataset, frac_data, metric_data, dataset_name_to_index, random_include_examples_back=None, multidataset_prune_list=None):
+    def __init__(self, dataset, frac_data, metric_data, dataset_name_to_index, random_include_examples_back=None):
         super().__init__(dataset)
         assert 0.0 <= frac_data <= 1.0
 
@@ -45,64 +45,30 @@ class FilterDataset(BaseWrapperDataset):
         self.concat_dataset = dataset
         self.metric_data = metric_data
 
-        if multidataset_prune_list:
-            multidataset_prune_list = multidataset_prune_list.strip().split(",")
+        # We only ever include stuff that is in metric_data. If our actual training set is a superset - we don't care.
+        limit = int(np.ceil(len(self.metric_data) * self.frac_data))
 
-            # Find the portion of the dataframe to include
-            indices_to_prune = self.metric_data['name'].isin(multidataset_prune_list)
-            filtered_dataset_name_df = self.metric_data.loc[indices_to_prune].copy()
-            len_dataset_to_prune = len(filtered_dataset_name_df)
+        self.metric_data.sort_values('metric', inplace=True, ascending=False)
 
-            logger.info(f"(multidataset_prune_list): length of original dataset filtered by multidataset_prune_list {len_dataset_to_prune}")
+        if random_include_examples_back is not None:
+            # randomly include `random_include_examples_back` of the other examples back
+            logger.info(f"Randomly throwing back {random_include_examples_back} of examples")
+            sampled_df = self.metric_data[limit:].sample(frac=random_include_examples_back)
 
-            # Lump all the datasets with names in `multidataset_prune_list` together and prune
-            limit = int(np.ceil(len(filtered_dataset_name_df) * self.frac_data))
-            filtered_dataset_name_df.sort_values('metric', inplace=True, ascending=False)
-            filtered_dataset_name_df = filtered_dataset_name_df[:limit]
+        self.metric_data = self.metric_data[:limit]
 
-            logger.info(f"(multidataset_prune_list): length of new dataset filtered by multidataset_prune_list {len_dataset_to_prune}")
-
-            if random_include_examples_back is not None:
-                # randomly include `random_include_examples_back` of the other examples back
-                logger.info(f"Randomly throwing back {random_include_examples_back} of examples")
-                sampled_df = filtered_dataset_name_df[limit:].sample(frac=random_include_examples_back)
-                filtered_dataset_name_df = pd.concat([filtered_dataset_name_df, sampled_df])
-                logger.info(f"After throwing back random examples, length of new dataset is {len(filtered_dataset_name_df)}")
-
-
-            # Concatenate with all the datasets with names not in `multidataset_prune_list`
-            self.metric_data = pd.concat([filtered_dataset_name_df, self.metric_data.loc[~indices_to_prune]])
-
-        else:
-            # We don't need to worry about dataset names and can sort everything in the csv file
-
-            # We only ever include stuff that is in metric_data. If our actual training set is a superset - we don't care.
-            limit = int(np.ceil(len(self.metric_data) * self.frac_data))
-
-            self.metric_data.sort_values('metric', inplace=True, ascending=False)
-
-            if random_include_examples_back is not None:
-                # randomly include `random_include_examples_back` of the other examples back
-                logger.info(f"Randomly throwing back {random_include_examples_back} of examples")
-                sampled_df = self.metric_data[limit:].sample(frac=random_include_examples_back)
-
-            self.metric_data = self.metric_data[:limit]
-
-            if random_include_examples_back is not None:
-                # add the sampled df bac
-                self.metric_data = pd.concat([self.metric_data, sampled_df])
-        
+        if random_include_examples_back is not None:
+            # add the sampled df bac
+            self.metric_data = pd.concat([self.metric_data, sampled_df])
+    
         # If there are a subset of data points in the csv file, then just train on those data points
         # otherwise, take the limit defined by `frac_data`
         self.length = len(self.metric_data)
-        logger.info(f"Original Concat dataset length: {len(self.concat_dataset)}")
-        logger.info(f"Final dataset length: {self.length}")
-
 
         self.dataset_name_to_index = dataset_name_to_index
 
     @staticmethod
-    def retrieve_metric_df(metric_file, cur_shard_str):
+    def retrieve_metric_df(metric_file, cur_shard_str, multidataset_prune_list=None):
 
         # Allow for templated metric file paths so that we don't load all data. For example:
         # --use-data-pruning-metrics-filepath "/checkpoint/danielsimig/c4_v2/pruning_metrics/avg_ppl_improvement_125m_350m_<SHARD>.jsonl"
@@ -129,12 +95,25 @@ class FilterDataset(BaseWrapperDataset):
 
             logger.info(f"Done processing metric file. {scanned_lines} lines scanned, {len(lines)} kept for this shard.")
             df = pd.DataFrame(lines)
-            logger.info("Metric DataFrame ready to use")
 
         elif metric_file.endswith(".csv"):
             df = pd.read_csv(metric_file)
+            original_length = len(df)
             df = df[df['name'].str.contains(cur_shard_str, regex=False)]  # Not tested
-            logger.info(f"Metric df length after filtering for shard_str: {len(df)}")
+            logger.info(f"Filtering by shard str: {original_length} lines scanned, {len(df)} kept for this shard.")
+
+        
+        # Now if the multidataset option is turned on, modify the metric file so that only rows with names in multidataset_prune_list
+        # are in the metric file. Otherwise, there will be rows in self.metric_data that are not in `dataset_name_to_index` and it will throw an error
+        if multidataset_prune_list:
+            multidataset_prune_list = multidataset_prune_list.strip().split(",")
+            original_length = len(df)
+            # df.apply(lambda x: x['name'].replace(f"{cur_shard_str}/", "") in multidataset_prune_list, axis=1, reduce=True)
+            # df = df[df['name'].isin(multidataset_prune_list)]  # Not tested
+            df = df[df.apply(lambda x: x['name'].replace(f"{cur_shard_str}/", "") in multidataset_prune_list, axis=1)]
+            logger.info(f"Filtering by dataset names in multidataset_prune_list: {original_length} lines scanned, {len(df)} kept for this shard.")
+
+        
 
         return df
 

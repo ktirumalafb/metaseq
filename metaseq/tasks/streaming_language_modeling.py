@@ -23,7 +23,7 @@ from metaseq.data import (
     ResamplingDataset,
     StreamingSrcTgtDataset,
     FilterDataset,
-    BucketizedDataset,
+    RatioDataset,
     data_utils,
     iterators,
 )
@@ -192,6 +192,11 @@ class StreamingLanguageModelingConfig(MetaseqDataclass):
         metadata={"help": "What fraction of training data to keep with data pruning (valid set)"},
     )
 
+    enable_multidataset_ratio_logic: Optional[bool] = field(
+        default=False,
+        metadata={"help": "Boolean flag to enable or disable multidataset ratio logic"}
+    )
+
     multidataset_prune_list: Optional[str] = field(
         default=None,
         metadata={"help": "comma-separated list of dataset names to include in pruning logic (every other dataset will be excluded)"}
@@ -302,6 +307,12 @@ class StreamingLanguageModelingTask(LegacyTask):
                 self.use_data_pruning_metrics_filepath = self.args.use_data_pruning_metrics_filepath
                 self.use_data_pruning_metrics_frac_data = self.args.use_data_pruning_metrics_frac_data
 
+                # Check that if the multidataset boolean logic is turned on, then the list of datasets to prune is not None
+                if self.args.enable_multidataset_ratio_logic:
+                    assert self.args.multidataset_prune_list is not None, "Please specify the multidataset prune list with --multidataset-prune-list or disable ratio logic by removing flag --enable-multidataset-ratio-logic"
+
+                if self.args.multidataset_prune_list is not None:
+                    assert self.args.enable_multidataset_ratio_logic, "You provided dataset names with --multidataset-prune-list, but have not enabled multidataset ratio logic with flag --enable-multidataset-ratio-logic"
 
         self.compute_data_pruning_metrics = compute_data_pruning_metrics
         self.use_data_pruning_metrics = use_data_pruning_metrics
@@ -468,8 +479,188 @@ class StreamingLanguageModelingTask(LegacyTask):
             split (str): name of the split (e.g., train, valid, valid1, test)
         """
 
-        if "valid" in split:
-            # This is the original load_dataset function in https://github.com/ktirumalafb/metaseq/blob/ktirumala/current_main/metaseq/tasks/streaming_language_modeling.py
+        # Only enable to the ratio-preserving logic when loading a `train` dataset and the --enable-multidataset-ratio-logic is on
+        if self.args.enable_multidataset_ratio_logic and split == "train" and self.args.use_data_pruning_metrics:
+            
+            # This function reads a bunch of jsonl files, concats them together,
+            # shuffles them, then chunks them into blocks of tokens (e.g., 2048).
+
+            # determine number of shards for this split
+            cur_shard_str = self.get_shard_str(epoch, split)
+
+            # concatenate any jsonl files that are part of the shard
+            datasets, corpora = [], []
+
+            # maintain index of dataset name path, to index
+            dataset_name_to_index = {}
+            dataset_index_counter = 0
+            dataset_index_to_name = {}
+
+            # Names of dataset to prune (specified by comma separated list in --multidataset_prune_list)
+            names_of_dataset_to_prune = self.args.multidataset_prune_list.strip().split(",")
+
+            # Load only datasets that we prune first
+            data_subshard_count = self.args.data_subshard_count if split == "train" else 1
+            for file in sorted(
+                os.listdir(os.path.join(self.args.data, split, cur_shard_str))
+            ):
+                if not file.endswith(".jsonl"):
+                    continue
+
+                if not (file in names_of_dataset_to_prune):
+                    continue
+
+            
+                datasets.append(
+                    JsonlDataset(
+                        path=os.path.join(self.args.data, split, cur_shard_str, file),
+                        tokenizer=self._tokenize_one_json,
+                        epoch=epoch,
+                        data_subshard_count=data_subshard_count,
+                    )
+                )
+                corpora.append(os.path.splitext(file)[0])
+                dataset_name_to_index[f"{cur_shard_str}/{file}"] = dataset_index_counter
+                dataset_index_to_name[dataset_index_counter] = os.path.join(self.args.data, split, cur_shard_str, file)
+                dataset_index_counter += 1
+            assert len(datasets) > 0
+
+            if self.args.multicorpus_sampling_alpha != 1:
+                datasets = self._alpha_sampling(datasets, corpora, epoch)
+
+            web_datasets_to_prune = torch.utils.data.ConcatDataset(datasets)
+            original_web_dataset_length = len(web_datasets_to_prune)
+
+            logger.info(f"Original length of concatenated to-prune datasets is: {original_web_dataset_length}")
+
+            metric_df = FilterDataset.retrieve_metric_df(
+                metric_file=self.args.use_data_pruning_metrics_filepath,
+                cur_shard_str=cur_shard_str,
+                multidataset_prune_list=self.args.multidataset_prune_list,
+            )
+
+            # Filter all the desired datasets with the specified csv metric file
+            web_datasets_to_prune = FilterDataset(
+                web_datasets_to_prune, 
+                frac_data=self.args.use_data_pruning_metrics_frac_data, 
+                metric_data=metric_df,
+                dataset_name_to_index=dataset_name_to_index,
+                random_include_examples_back=self.args.random_include_examples_back,
+            )
+            new_web_dataset_length = len(web_datasets_to_prune)
+            logger.info(f"New length of concatenated to-prune datasets is: {new_web_dataset_length}")
+
+            shortening_ratio = (1.0 * new_web_dataset_length) / original_web_dataset_length
+            assert 0.0 <= shortening_ratio <= 1.0, "Error, `shortening_ratio` is not between 0.0 and 1.0!"
+
+            logger.info(f"shortening ratio is: {shortening_ratio}")
+
+            # Now go through the individual non-web datasets and shorten them by the same fraction `shortening_ratio`
+            non_web_datasets_arr = []
+            for file in sorted(
+                os.listdir(os.path.join(self.args.data, split, cur_shard_str))
+            ):
+                if not file.endswith(".jsonl"):
+                    continue
+
+                # We are only looking at datasets which we are NOT pruning
+                if file in names_of_dataset_to_prune:
+                    continue
+
+                # Load the original jsonl dataset
+                jsonl_dataset = JsonlDataset(
+                    path=os.path.join(self.args.data, split, cur_shard_str, file),
+                    tokenizer=self._tokenize_one_json,
+                    epoch=epoch,
+                    data_subshard_count=data_subshard_count,
+                )
+
+                logger.info(f"Length of file {file} before ratio is {len(jsonl_dataset)}")
+
+                # Shorten the dataset based on `shortening_ratio
+                ratio_dataset = RatioDataset(jsonl_dataset, shortening_ratio)
+
+                logger.info(f"Length of file {file} after ratio is {len(ratio_dataset)}")
+
+                non_web_datasets_arr.append(ratio_dataset)
+
+            non_web_datasets = torch.utils.data.ConcatDataset(non_web_datasets_arr)
+
+            logger.info(f"Total length of non-pruned datasets is: {len(non_web_datasets)}")
+
+
+            dataset = torch.utils.data.ConcatDataset([web_datasets_to_prune, non_web_datasets])
+
+        elif split == "train" and self.args.use_data_pruning_metrics:
+            # If the split is train and we want to prune but no --enable-multidataset-ratio-logic, prune the entire concat dataset (this is the default pruning logic) without caring about ratios
+            
+            # determine number of shards for this split
+            cur_shard_str = self.get_shard_str(epoch, split)
+
+            # concatenate any jsonl files that are part of the shard
+            datasets, corpora = [], []
+
+            # maintain index of dataset name path, to index
+            dataset_name_to_index = {}
+            dataset_index_counter = 0
+
+            dataset_index_to_name = {}
+
+            # Don't include path infos in dataset if you are
+            # not computing data pruning metrics or using
+            # data pruning metrics
+            include_path_infos_in_jsonl_dataset = (self.args.use_data_pruning_metrics) or (self.args.compute_data_pruning_metrics is not None)
+
+
+            data_subshard_count = self.args.data_subshard_count if split == "train" else 1
+            for file in sorted(
+                os.listdir(os.path.join(self.args.data, split, cur_shard_str))
+            ):
+                if not file.endswith(".jsonl"):
+                    continue
+                datasets.append(
+                    JsonlDataset(
+                        path=os.path.join(self.args.data, split, cur_shard_str, file),
+                        tokenizer=self._tokenize_one_json,
+                        epoch=epoch,
+                        data_subshard_count=data_subshard_count,
+                    )
+                )
+                corpora.append(os.path.splitext(file)[0])
+                dataset_name_to_index[f"{cur_shard_str}/{file}"] = dataset_index_counter
+                dataset_index_to_name[dataset_index_counter] = os.path.join(self.args.data, split, cur_shard_str, file)
+                dataset_index_counter += 1
+            assert len(datasets) > 0
+
+            if self.args.multicorpus_sampling_alpha != 1:
+                datasets = self._alpha_sampling(datasets, corpora, epoch)
+
+            dataset = torch.utils.data.ConcatDataset(datasets)
+
+            # This method should only be called *once* when we 
+            # are processing the combined `train` dataset
+            metric_df = FilterDataset.retrieve_metric_df(
+                metric_file=self.args.use_data_pruning_metrics_filepath,
+                cur_shard_str=cur_shard_str,
+            )
+
+            n_metric_df = len(metric_df)
+            logger.info(f"Filtering data points - length of metric df: {n_metric_df}")
+            # If len(metric_df) < len(dataset), then not every
+            # document has a computed metric, so we should not
+            # be pruning
+            dataset = FilterDataset(
+                dataset, 
+                frac_data=self.args.use_data_pruning_metrics_frac_data, 
+                metric_data=metric_df,
+                dataset_name_to_index=dataset_name_to_index,
+                random_include_examples_back=self.args.random_include_examples_back
+            )
+            new_len_dataset = len(dataset)
+            logger.info(f"Length of new dataset is: {new_len_dataset}")
+        else:
+            # This is the default logic in main 
+            # see https://github.com/ktirumalafb/metaseq/blob/ktirumala/current_main/metaseq/tasks/streaming_language_modeling.py
     
             # determine number of shards for this split
             cur_shard_str = self.get_shard_str(epoch, split)
@@ -497,202 +688,8 @@ class StreamingLanguageModelingTask(LegacyTask):
                 datasets = self._alpha_sampling(datasets, corpora, epoch)
 
             dataset = torch.utils.data.ConcatDataset(datasets)
-        elif split == "train":
-            
-            # This function reads a bunch of jsonl files, concats them together,
-            # shuffles them, then chunks them into blocks of tokens (e.g., 2048).
 
-            # determine number of shards for this split
-            cur_shard_str = self.get_shard_str(epoch, split)
-
-            # concatenate any jsonl files that are part of the shard
-            datasets, corpora = [], []
-
-            # maintain index of dataset name path, to index
-            dataset_name_to_index = {}
-            dataset_index_counter = 0
-
-            dataset_index_to_name = {}
-
-            # Don't include path infos in dataset if you are
-            # not computing data pruning metrics or using
-            # data pruning metrics
-            include_path_infos_in_jsonl_dataset = (self.args.use_data_pruning_metrics) or (self.args.compute_data_pruning_metrics is not None)
-
-            # Names of dataset to prune (specified by comma separated list in --multidataset_prune_list)
-            names_of_dataset_to_prune = self.args.multidataset_prune_list.strip().split(",")
-
-            # Load only datasets that we prune first
-            data_subshard_count = self.args.data_subshard_count if split == "train" else 1
-            for file in sorted(
-                os.listdir(os.path.join(self.args.data, split, cur_shard_str))
-            ):
-                print(file)
-                if not file.endswith(".jsonl"):
-                    continue
-
-                if not file in names_of_dataset_to_prune:
-                    continue
-
-            
-                datasets.append(
-                    JsonlDataset(
-                        path=os.path.join(self.args.data, split, cur_shard_str, file),
-                        tokenizer=self._tokenize_one_json,
-                        epoch=epoch,
-                        data_subshard_count=data_subshard_count,
-                    )
-                )
-
-                # for cc and reddit, load them as one concat dataset => put filter dataset around that dataset
-
-                # for formal text, load them as individual json l datasets => match with matchFilterDataset => concat these together
-                corpora.append(os.path.splitext(file)[0])
-                dataset_name_to_index[f"{cur_shard_str}/{file}"] = dataset_index_counter
-                dataset_index_to_name[dataset_index_counter] = os.path.join(self.args.data, split, cur_shard_str, file)
-                dataset_index_counter += 1
-            assert len(datasets) > 0
-
-            if self.args.multicorpus_sampling_alpha != 1:
-                datasets = self._alpha_sampling(datasets, corpora, epoch)
-
-            print(names_of_dataset_to_prune)
-
-            # if split == "train" and self.args.multidataset_prune_list is not None:
-
-            #     list_datasets = self.args.multidataset_prune_list.strip().split(",")
-            #     for dataset_name_to_prune in list_datasets:
-            #         assert dataset_name_to_prune in dataset_name_to_index.keys(), f"{dataset_name_to_prune} given in flag --multidataset-prune-list is not available in original dataset"
-
-            web_datasets_to_prune = torch.utils.data.ConcatDataset(datasets)
-
-            original_web_dataset_length = len(web_datasets_to_prune)
-
-            # Filter by metric (only on train dataset)
-            if split == "train" and self.args.use_data_pruning_metrics:
-                # This method should only be called *once* when we 
-                # are processing the combined `train` dataset
-                metric_df = FilterDataset.retrieve_metric_df(
-                    metric_file=self.args.use_data_pruning_metrics_filepath,
-                    cur_shard_str=cur_shard_str,
-                )
-
-                # If len(metric_df) < len(dataset), then not every
-                # document has a computed metric, so we should not
-                # be pruning
-                web_datasets_to_prune = FilterDataset(
-                    web_datasets_to_prune, 
-                    frac_data=self.args.use_data_pruning_metrics_frac_data, 
-                    metric_data=metric_df,
-                    dataset_name_to_index=dataset_name_to_index,
-                    random_include_examples_back=self.args.random_include_examples_back,
-                    multidataset_prune_list=self.args.multidataset_prune_list,
-
-                )
-                new_len_dataset = len(web_datasets_to_prune)
-                logger.info(f"Length of final dataset is: {new_len_dataset}")
-
-            # Now go through the individual filtered web datasets and ensure the ratios stay roughly the same
-
-            # How does this part work?
-
-            # Say we have dataset X, an individual non web dataset; Then say we have dataset Y - the combination of web datasets (that we do pruning on)
-            # Then say that dataset Y portion was 1/2'ed
-            # So then we must 1/2 dataset X when loading in order to keep the proportion the same
-
-            # so the mapping from dataset Y shards to dataset X shard will look like
-            # 00 -> 00
-            # 01 -> 00
-            # 02 -> 01
-            # 03 -> 01
-            # 04 -> 02
-            # 05 -> 02
-
-            # This looks simple enough (we jut go forward every two when loading dataset X)
-            # but what if the original web dataset was 0.7'ed - then there is no simple whole number we can just skip forward by
-
-            # Instead we do the following:
-            # (1) Calculate how many shards of dataset X we go through, if we have 10 shards of dataset Y. Call this number N
-            #    - this consists of taking the ratio and multiplying it by 10 (so there is some rounding here)
-            # (2) Calculate which N-chunk of dataset X we must load (based on which 10-chunk of dataset Y we are in)
-            #    - for example, say N = 4 (i.e. dataset Y was 0.4x'ed)
-            #    - then 0-9 of dataset Y would map to 0-3 of dataset X ; 10 - 19 (dataset X) -> 4 - 7 (dataset Y), etc.
-            # (3) Divide the N-chunk of dataset X into 10, and wherever we are in the 10-chunk of dataset Y, map into the appropriate place in the N-chunk
-            #    - so following the example above, shards 0-3 of dataset X would be divided into 10 sequential pieces; 
-            #      then cur_shard_str will tell us (1) which 10-chunk of dataset Y we are in (2) where in the 10-chunk of dataset Y we are in
-            #      we follow this to get the correct piece of shards 0-3
-            #
-            # Definitions: An N-chunk just means N shards of data concatenated
-
-
-            non_web_datasets_arr = []
-            for file in sorted(
-                os.listdir(os.path.join(self.args.data, split, cur_shard_str))
-            ):
-                if not file.endswith(".jsonl"):
-                    continue
-
-                # We are only looking at datasets which we are NOT pruning
-                if file in names_of_dataset_to_prune:
-                    continue
-
-
-                # So if web_datasets_to_prune was 100 and original_web_dataset_length was 200
-                # i.e we did 50% pruning, then ratio_decrease_web_datasets = 0.5
-                # This indicates that the web dataset proportion was halved 
-                print(f"original_web_dataset_length: {original_web_dataset_length}")
-
-                print(f"len(web_datasets_to_prune): {len(web_datasets_to_prune)}")
-
-                ratio_decrease_web_datasets = 1.0 * len(web_datasets_to_prune) / original_web_dataset_length
-
-                assert 0.0 <= ratio_decrease_web_datasets <= 1.0
-
-                print(f"ratio_decrease_web_datasets: {ratio_decrease_web_datasets}")
-
-                num_non_web_shards_in_one_chunk = round(ratio_decrease_web_datasets * 10.0)
-
-                print(f"num_non_web_shards_in_one_chunk: {num_non_web_shards_in_one_chunk}")
-                current_web_shard = int(cur_shard_str)
-
-                print(f"current_web_shard: {current_web_shard}")
-
-
-                bucket_num = current_web_shard // 10
-
-                print(f"bucket_num: {bucket_num}")
-                buckets_to_load = range(bucket_num * num_non_web_shards_in_one_chunk, (1 + bucket_num) * num_non_web_shards_in_one_chunk)
-
-                temp_arr = []
-                for bucket_to_load in buckets_to_load:
-                    print(bucket_to_load)
-                    print(cur_shard_str)
-                    # TODO: this conversion to only have 2 digits as the string for the shard might not be right
-                    bucket_to_load_str = f"{bucket_to_load:02d}"
-                    temp_arr.append(JsonlDataset(
-                        path=os.path.join(self.args.data, split, bucket_to_load_str, file),
-                        tokenizer=self._tokenize_one_json,
-                        epoch=epoch,
-                        data_subshard_count=data_subshard_count,
-                    ))
-                
-                dataset_for_entire_non_web_bucket = torch.utils.data.ConcatDataset(temp_arr)
-
-                pos_in_web_dataset_bucket = current_web_shard % 10
-
-                chunk_size = int((1.0 * len(dataset_for_entire_non_web_bucket)) / 10)
-
-                this_file_non_web_dataset = BucketizedDataset(dataset_for_entire_non_web_bucket, pos_in_web_dataset_bucket * chunk_size, (pos_in_web_dataset_bucket + 1) * chunk_size)
-                non_web_datasets_arr.append(this_file_non_web_dataset)
-
-
-            non_web_datasets = torch.utils.data.ConcatDataset(non_web_datasets_arr)
-
-            dataset = torch.utils.data.ConcatDataset([web_datasets_to_prune, non_web_datasets])
-        else:
-            print(f"Error split name not recognized: {split}")
-            return
-
+        logger.info(f"Final dataset length is: {len(dataset)}")
         # chunk into blocks of tokens
         if self.has_cm3:
             # We chose not to use compositional inheritance because there's a

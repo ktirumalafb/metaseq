@@ -37,7 +37,7 @@ from .token_block_dataset import TokenBlockDataset
 from .pad_dataset import MultiplePadDataset
 from .shorten_dataset import TruncateDataset
 from .filter_dataset import FilterDataset
-from .bucketized_dataset import BucketizedDataset
+from .ratio_dataset import RatioDataset
 
 from .iterators import (
     CountingIterator,
@@ -84,5 +84,5 @@ __all__ = [
     "TruncateDataset",
     "TruncatedDictionary",
     "FilterDataset",
-    "BucketizedDataset"
+    "RatioDataset"
 ]

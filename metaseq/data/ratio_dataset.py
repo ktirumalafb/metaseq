@@ -15,23 +15,21 @@ from . import BaseWrapperDataset
 
 logger = logging.getLogger(__name__)
 
-class BucketizedDataset(BaseWrapperDataset):
+class RatioDataset(BaseWrapperDataset):
     """
-    This just returns a dataset that returns values within a specified index range of the source dataset
+    This class takes in a `dataset` and a `ratio` and returns 
     """
 
-    def __init__(self, dataset, bottom_limit, top_limit):
+    def __init__(self, dataset, ratio):
         super().__init__(dataset)
-            
         self.dataset = dataset
-        self.top_limit = top_limit
-        self.bottom_limit = bottom_limit
-
-        self.length = self.top_limit - self.bottom_limit
+        self.ratio = ratio
+        original_length = len(self.dataset)
+        self.length = int(original_length * ratio)
 
     def __getitem__(self, index):
         assert 0 <= index < self.length
-        return self.dataset[bottom_limit + index]
+        return self.dataset[index]
 
     def __len__(self):
         return self.length
