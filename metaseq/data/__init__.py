@@ -36,6 +36,7 @@ from .strip_token_dataset import StripTokenDataset
 from .token_block_dataset import TokenBlockDataset
 from .pad_dataset import MultiplePadDataset
 from .shorten_dataset import TruncateDataset
+from .filter_dataset import FilterDataset
 
 from .iterators import (
     CountingIterator,
@@ -81,4 +82,5 @@ __all__ = [
     "TokenBlockDataset",
     "TruncateDataset",
     "TruncatedDictionary",
+    "FilterDataset"
 ]
