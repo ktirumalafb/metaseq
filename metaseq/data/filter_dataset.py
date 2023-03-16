@@ -60,18 +60,15 @@ class FilterDataset(BaseWrapperDataset):
         if random_include_examples_back is not None:
             # add the sampled df bac
             self.metric_data = pd.concat([self.metric_data, sampled_df])
-        
+    
         # If there are a subset of data points in the csv file, then just train on those data points
         # otherwise, take the limit defined by `frac_data`
         self.length = len(self.metric_data)
-        logger.info(f"Concat dataset length: {len(self.concat_dataset)}")
-        logger.info(f"Filter dataset length: {len(self.metric_data)} * {self.frac_data} = {self.length}")
-
 
         self.dataset_name_to_index = dataset_name_to_index
 
     @staticmethod
-    def retrieve_metric_df(metric_file, cur_shard_str):
+    def retrieve_metric_df(metric_file, cur_shard_str, multidataset_prune_list=None):
 
         # Allow for templated metric file paths so that we don't load all data. For example:
         # --use-data-pruning-metrics-filepath "/checkpoint/danielsimig/c4_v2/pruning_metrics/avg_ppl_improvement_125m_350m_<SHARD>.jsonl"
@@ -98,12 +95,25 @@ class FilterDataset(BaseWrapperDataset):
 
             logger.info(f"Done processing metric file. {scanned_lines} lines scanned, {len(lines)} kept for this shard.")
             df = pd.DataFrame(lines)
-            logger.info("Metric DataFrame ready to use")
 
         elif metric_file.endswith(".csv"):
             df = pd.read_csv(metric_file)
+            original_length = len(df)
             df = df[df['name'].str.contains(cur_shard_str, regex=False)]  # Not tested
-            logger.info(f"Metric df length after filtering for shard_str: {len(df)}")
+            logger.info(f"Filtering by shard str: {original_length} lines scanned, {len(df)} kept for this shard.")
+
+        
+        # Now if the multidataset option is turned on, modify the metric file so that only rows with names in multidataset_prune_list
+        # are in the metric file. Otherwise, there will be rows in self.metric_data that are not in `dataset_name_to_index` and it will throw an error
+        if multidataset_prune_list:
+            multidataset_prune_list = multidataset_prune_list.strip().split(",")
+            original_length = len(df)
+            # df.apply(lambda x: x['name'].replace(f"{cur_shard_str}/", "") in multidataset_prune_list, axis=1, reduce=True)
+            # df = df[df['name'].isin(multidataset_prune_list)]  # Not tested
+            df = df[df.apply(lambda x: x['name'].replace(f"{cur_shard_str}/", "") in multidataset_prune_list, axis=1)]
+            logger.info(f"Filtering by dataset names in multidataset_prune_list: {original_length} lines scanned, {len(df)} kept for this shard.")
+
+        
 
         return df
 
