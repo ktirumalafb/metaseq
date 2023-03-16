@@ -310,6 +310,7 @@ class StreamingLanguageModelingTask(LegacyTask):
                 # Check that if the multidataset boolean logic is turned on, then the list of datasets to prune is not None
                 if self.args.enable_multidataset_ratio_logic:
                     assert self.args.multidataset_prune_list is not None, "Please specify the multidataset prune list with --multidataset-prune-list or disable ratio logic by removing flag --enable-multidataset-ratio-logic"
+                    assert self.args.use_data_pruning_metrics, "Since you have enabled multidataset ratio preserving logic, please specify the pruning metric file with --use-data-pruning-metrics"
 
                 if self.args.multidataset_prune_list is not None:
                     assert self.args.enable_multidataset_ratio_logic, "You provided dataset names with --multidataset-prune-list, but have not enabled multidataset ratio logic with flag --enable-multidataset-ratio-logic"
@@ -575,12 +576,12 @@ class StreamingLanguageModelingTask(LegacyTask):
                     data_subshard_count=data_subshard_count,
                 )
 
-                logger.info(f"Length of file {file} before ratio is {len(jsonl_dataset)}")
+                logger.info(f"Length of file {file} before shortening is {len(jsonl_dataset)}")
 
                 # Shorten the dataset based on `shortening_ratio
                 ratio_dataset = RatioDataset(jsonl_dataset, shortening_ratio)
 
-                logger.info(f"Length of file {file} after ratio is {len(ratio_dataset)}")
+                logger.info(f"Length of file {file} after shortening is {len(ratio_dataset)}")
 
                 non_web_datasets_arr.append(ratio_dataset)
 
