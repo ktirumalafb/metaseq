@@ -203,7 +203,7 @@ class TransformerLanguageModel(LanguageModel):
             )
 
         embed_tokens = cls.build_embedding(
-            args, task.source_dictionary, args.decoder_embed_dim
+            args, task.source_dictionary, args.decoder_input_dim
         )
         decoder = TransformerDecoder(
             args,

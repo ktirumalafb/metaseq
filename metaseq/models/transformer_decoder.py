@@ -77,16 +77,29 @@ class TransformerDecoder(BaseDecoder):
 
         self.share_input_output_embed = args.share_decoder_input_output_embed
         self.embed_dim = args.decoder_embed_dim
+        self.output_embed_dim = args.decoder_output_dim
+
         self.padding_idx = embed_tokens.padding_idx
         self.max_target_positions = args.max_target_positions
         self.embed_tokens = embed_tokens
         self.embed_scale = 1.0 if args.no_scale_embedding else math.sqrt(self.embed_dim)
+        
+        input_embed_dim = embed_tokens.embedding_dim
+        embed_dim = args.decoder_embed_dim
+
+
 
         initialize_params_on_gpu = getattr(
             args, "tensor_parallel_init_model_on_gpu", False
         )
         device = torch.cuda.current_device() if initialize_params_on_gpu else None
         dtype = utils.get_model_init_dtype(args)
+
+        self.project_in_dim = (
+            Linear(input_embed_dim, embed_dim, bias=False, dtype=dtype)
+            if embed_dim != input_embed_dim
+            else None
+        )
 
         self.use_alibi: bool = getattr(args, "alibi", False)
         self.self_attn_doc_sep: int = getattr(
@@ -156,11 +169,18 @@ class TransformerDecoder(BaseDecoder):
 
         self.num_layers = len(self.layers)
 
-        self.layer_norm = LayerNorm(
-            self.embed_dim,
-            elementwise_affine=not getattr(args, "disable_affine_ln", False),
+        # self.layer_norm = LayerNorm(
+        #     self.embed_dim,
+        #     elementwise_affine=not getattr(args, "disable_affine_ln", False),
+        # )
+        # self.layer_norm.to(device).to(dtype)
+        self.layer_norm = None
+
+        self.project_out_dim = (
+            Linear(self.embed_dim, self.output_embed_dim, bias=False, dtype=dtype)
+            if self.embed_dim != self.output_embed_dim
+            else None
         )
-        self.layer_norm.to(device).to(dtype)
 
         self.output_projection = None
         if self.share_input_output_embed:
@@ -174,7 +194,7 @@ class TransformerDecoder(BaseDecoder):
             self.output_projection.weight = self.embed_tokens.weight
         else:
             self.output_projection = Linear(
-                self.embed_dim,
+                self.output_embed_dim,
                 len(dictionary),
                 bias=False,
                 initialize_params_on_gpu=initialize_params_on_gpu,
@@ -188,6 +208,7 @@ class TransformerDecoder(BaseDecoder):
             self.alibi = self._build_alibi_tensor(
                 self.max_positions(), args.decoder_attention_heads
             )
+
 
     @staticmethod
     def _build_alibi_tensor(max_seq_len: int, n_attention_heads: int):
@@ -327,6 +348,9 @@ class TransformerDecoder(BaseDecoder):
 
         x = embed = self.embed_scale * token_embedding
 
+        if self.project_in_dim is not None:
+            x = self.project_in_dim(x)
+
         if positions is not None:
             x += positions
 
@@ -431,6 +455,12 @@ class TransformerDecoder(BaseDecoder):
         if self.layer_norm is not None:
             x = self.layer_norm(x)
 
+        # T x B x C -> B x T x C
+        x = x.transpose(0, 1)
+
+        if self.project_out_dim is not None:
+            x = self.project_out_dim(x)
+    
         # Returned x is T x B x C here, as sequence_parallel requires T to be first dim
         return x, {"inner_states": inner_states}
 
