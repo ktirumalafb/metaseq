@@ -377,7 +377,7 @@ class TransformerDecoder(IncrementalDecoder):
         self.embed_scale = 1.0 if args.no_scale_embedding else math.sqrt(embed_dim)
 
         self.project_in_dim = (
-            Linear16(input_embed_dim, embed_dim, bias=False)
+            Linear(input_embed_dim, embed_dim, bias=False)
             if embed_dim != input_embed_dim
             else None
         )
@@ -477,7 +477,7 @@ class TransformerDecoder(IncrementalDecoder):
             self.layer_norm = None
 
         self.project_out_dim = (
-            Linear16(embed_dim, self.output_embed_dim, bias=False)
+            Linear(embed_dim, self.output_embed_dim, bias=False)
             if embed_dim != self.output_embed_dim
             else None
         )
@@ -959,9 +959,9 @@ def Linear(in_features, out_features, bias=True):
     return m
 
 
-def Linear16(in_features, out_features, bias=True):
-    m = nn.Linear(in_features, out_features, bias, dtype=torch.half)
-    nn.init.xavier_uniform_(m.weight)
-    if bias:
-        nn.init.constant_(m.bias, 0.0)
-    return m
+# def Linear16(in_features, out_features, bias=True):
+#     m = nn.Linear(in_features, out_features, bias, dtype=torch.half)
+#     nn.init.xavier_uniform_(m.weight)
+#     if bias:
+#         nn.init.constant_(m.bias, 0.0)
+#     return m
