@@ -497,11 +497,11 @@ def load_model_ensemble_and_task(
             # cfg.task.merges_filename = "/datasets01/gptz_corpus_dedup_10_10_1_0.05_exp29/120321/tokenizers/gpt2-merges.txt"
             # cfg.task.vocab_filename = "/datasets01/gptz_corpus_dedup_10_10_1_0.05_exp29/120321/tokenizers/gpt2-vocab.json"
 
-            # cfg.task.merges_filename = "/data/gpt-z/opt/tokenizers/gpt2-merges.txt"
-            # cfg.task.vocab_filename = "/data/gpt-z/opt/tokenizers/gpt2-vocab.json"
+            cfg.task.merges_filename = "/data/gpt-z/opt/tokenizers/gpt2-merges.txt"
+            cfg.task.vocab_filename = "/data/gpt-z/opt/tokenizers/gpt2-vocab.json"
             
-            # cfg.model.model_parallel_size = 1
-            # cfg.common.model_parallel_size = 1
+            cfg.model.model_parallel_size = 1
+            cfg.common.model_parallel_size = 1
 
             # logger.info(f"CFG -------->>>>>>>>>>> {cfg.model}")
 
@@ -511,9 +511,6 @@ def load_model_ensemble_and_task(
                 print(state["model"][weight_key].device)
                 if str(state["model"][weight_key].device) != 'cpu':
                     print(weight_key)
-
-            from metaseq  import pdb; pdb.set_trace()
-
 
             if task is None:
                 task = tasks.setup_task(cfg.task)
