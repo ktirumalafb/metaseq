@@ -499,7 +499,6 @@ def load_model_ensemble_and_task(
 
             cfg.task.merges_filename = "/data/gpt-z/opt/tokenizers/gpt2-merges.txt"
             cfg.task.vocab_filename = "/data/gpt-z/opt/tokenizers/gpt2-vocab.json"
-            # cfg.task.tensor_parallel_init_model_on_gpu = False
 
             
             cfg.model.model_parallel_size = 1
@@ -508,17 +507,13 @@ def load_model_ensemble_and_task(
 
             oproj_key = "decoder.output_projection.weight"
             emb_key = "decoder.embed_tokens.weight"
-            if emb_key in state["model"] and oproj_key not in state["model"]:
-                state["model"][oproj_key] = state["model"][emb_key]
+            state["model"][oproj_key] = state["model"][emb_key]
 
         
             # logger.info(f"CFG -------->>>>>>>>>>> {cfg.model}")
 
 
             # make everything go to cpu
-
-            from metaseq  import pdb; pdb.set_trace()
-
             if task is None:
                 task = tasks.setup_task(cfg.task)
 
