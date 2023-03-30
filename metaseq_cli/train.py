@@ -168,8 +168,11 @@ def main(cfg: DictConfig) -> None:
         if should_stop:
             break
 
+        first_valid_loss = None
+        if valid_losses is not None:
+            first_valid_loss = valid_losses[0]
         # only use first validation loss to update the learning rate
-        trainer.lr_step(epoch_itr.epoch, valid_losses[0])
+        trainer.lr_step(epoch_itr.epoch, first_valid_loss)
 
         epoch_itr = trainer.get_train_iterator(
             epoch_itr.next_epoch_idx,
@@ -277,6 +280,7 @@ def train(
     trainer.begin_epoch(epoch_itr.epoch)
     valid_subsets = cfg.dataset.valid_subset.split(",")
     should_stop = False
+    valid_losses = None
     num_updates = trainer.get_num_updates()
     logger.info("Start iterating over samples")
 
@@ -314,7 +318,7 @@ def train(
         )
 
         return valid_losses, should_stop
-
+    
     for i, samples in enumerate(progress):
         if (
             distributed_utils.get_global_rank() == 0
