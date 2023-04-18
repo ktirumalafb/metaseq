@@ -103,18 +103,18 @@ def save_checkpoint(
             f"(writing took {write_timer.sum} seconds)"
         )
 
-        trainer.save_checkpoint(
-            checkpoints[1],
-            extra_state,
-            training_finished=training_finished,
-            async_callback_fn=async_callback_fn if save_to_NFS else None,
-        )
+        # trainer.save_checkpoint(
+        #     checkpoints[1],
+        #     extra_state,
+        #     training_finished=training_finished,
+        #     async_callback_fn=async_callback_fn if save_to_NFS else None,
+        # )
 
-        write_timer.stop()
-        logger.info(
-            f"Saved checkpoint {checkpoints[1]} (epoch {epoch} @ {updates} updates) "
-            f"(writing took {write_timer.sum} seconds)"
-        )
+        # write_timer.stop()
+        # logger.info(
+        #     f"Saved checkpoint {checkpoints[1]} (epoch {epoch} @ {updates} updates) "
+        #     f"(writing took {write_timer.sum} seconds)"
+        # )
 
 
 def load_checkpoint(cfg: CheckpointConfig, trainer, **passthrough_args):
