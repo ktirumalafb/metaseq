@@ -471,6 +471,9 @@ def validate_and_save(
             and was_successful_step
         )
         or should_stop
+        or (
+            end_of_epoch # This is so that save_checkpoint is called, and actually does checkpoint_last saving to make restarts possible
+        )
     )
     do_validate = (
         should_stop

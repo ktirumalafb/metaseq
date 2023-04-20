@@ -78,6 +78,7 @@ def save_checkpoint(
         (training_finished and cfg.save_last_checkpoint)
         or save_for_epoch
         or save_for_updates
+        or cfg.save_last_checkpoint
     )
 
     extra_state = {"train_iterator": epoch_itr.state_dict()}
@@ -102,19 +103,6 @@ def save_checkpoint(
             f"Saved checkpoint {checkpoints[0]} (epoch {epoch} @ {updates} updates) "
             f"(writing took {write_timer.sum} seconds)"
         )
-
-        # trainer.save_checkpoint(
-        #     checkpoints[1],
-        #     extra_state,
-        #     training_finished=training_finished,
-        #     async_callback_fn=async_callback_fn if save_to_NFS else None,
-        # )
-
-        # write_timer.stop()
-        # logger.info(
-        #     f"Saved checkpoint {checkpoints[1]} (epoch {epoch} @ {updates} updates) "
-        #     f"(writing took {write_timer.sum} seconds)"
-        # )
 
 
 def load_checkpoint(cfg: CheckpointConfig, trainer, **passthrough_args):
