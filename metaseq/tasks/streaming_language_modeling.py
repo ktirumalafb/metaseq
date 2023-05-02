@@ -202,6 +202,12 @@ class StreamingLanguageModelingConfig(MetaseqDataclass):
         metadata={"help": "comma-separated list of dataset names to include in pruning logic (every other dataset will be excluded)"}
     )
 
+    # Repeated data experiments
+    repeat_data_epoch_number: Optional[int] = field(
+        default=-1,
+        metadata={"help": "What epoch number (shard count) do we start repeating data with"},
+    )
+
     # TODO common vars below add to parent
     seed: int = II("common.seed")
     batch_size: Optional[int] = II("dataset.batch_size")
