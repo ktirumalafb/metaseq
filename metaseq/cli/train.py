@@ -207,9 +207,10 @@ def main(cfg: DictConfig) -> None:
     while epoch_itr.next_epoch_idx <= max_epoch:
         # skip shards 1811, 1814, 1852, 2910 => skip epochs 1812, 1815, 1853, 2911
         if (epoch_itr.epoch == 1812) or (epoch_itr.epoch == 1815) or (epoch_itr.epoch == 1853) or (epoch_itr.epoch == 2911):
-            logger.info(f"Skipping shard {epoch_itr.epoch} due to corrupted data... continuing to next shard")
+            manual_skip = epoch_itr.epoch + 1
+            logger.info(f"Skipping shard {epoch_itr.epoch} due to corrupted data... continuing to next shard...next epoch is epoch: {manual_skip}")
             epoch_itr = trainer.get_train_iterator(
-                epoch_itr.next_epoch_idx,
+                manual_skip,
                 # don't cache epoch iterators for sharded datasets
                 disable_iterator_cache=True,
             )
