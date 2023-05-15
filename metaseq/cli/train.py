@@ -205,6 +205,16 @@ def main(cfg: DictConfig) -> None:
     train_meter = meters.StopwatchMeter()
     train_meter.start()
     while epoch_itr.next_epoch_idx <= max_epoch:
+        # skip shards 1811, 1814, 1852, 2910 => skip epochs 1812, 1815, 1853, 2911
+        if (epoch_itr.epoch == 1812) or (epoch_itr.epoch == 1815) or (epoch_itr.epoch == 1853) or (epoch_itr.epoch == 2911):
+            logger.info(f"Skipping shard {epoch_itr.epoch} due to corrupted data... continuing to next shard")
+            epoch_itr = trainer.get_train_iterator(
+                epoch_itr.next_epoch_idx,
+                # don't cache epoch iterators for sharded datasets
+                disable_iterator_cache=True,
+            )
+            continue
+
         # train for one epoch
         valid_losses, should_stop = train(cfg, trainer, task, epoch_itr)
         if should_stop:
