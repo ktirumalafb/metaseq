@@ -44,9 +44,11 @@ class JsonlDataset(torch.utils.data.Dataset):
         recache=False,
         epoch=1,
         data_subshard_count=1,
+        include_path_infos_in_jsonl_dataset: bool = False
     ):
         self.path = path
         self.tokenizer = tokenizer
+        self.include_path_infos_in_jsonl_dataset = include_path_infos_in_jsonl_dataset
 
         self.threadlocal = threading.local()
         # resolve symlinks to for cached indexes. This lets us re-use indexes
@@ -110,6 +112,8 @@ class JsonlDataset(torch.utils.data.Dataset):
             )
         if self.tokenizer is not None:
             item = self.tokenizer(item)
+
+        from metaseq import pdb; pdb.set_trace()
         return item
 
     def __len__(self):

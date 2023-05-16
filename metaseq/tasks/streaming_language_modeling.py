@@ -625,6 +625,7 @@ class StreamingLanguageModelingTask(LegacyTask):
                         tokenizer=self._tokenize_one_json,
                         epoch=epoch,
                         data_subshard_count=data_subshard_count,
+                        include_path_infos_in_jsonl_dataset=include_path_infos_in_jsonl_dataset,
                     )
                 )
                 corpora.append(os.path.splitext(file)[0])

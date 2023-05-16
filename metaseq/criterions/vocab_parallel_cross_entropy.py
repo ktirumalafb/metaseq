@@ -29,7 +29,7 @@ class VocabParallelCrossEntropyCriterion(BaseCriterion):
                 "\n\nPlease install megatron using the setup instructions!"
             )
 
-    def forward(self, model, sample, reduce=True):
+    def forward(self, model, sample, reduce=True, compute_metrics=False):
         """Compute the loss for the given sample.
 
         Returns a tuple with three elements:
@@ -37,6 +37,7 @@ class VocabParallelCrossEntropyCriterion(BaseCriterion):
         2) the sample size, which is used as the denominator for the gradient
         3) logging outputs to display while training
         """
+        from metaseq import pdb; pdb.set_trace()
         target = sample["target"]
         has_pad = target.eq(self.padding_idx).any().item()
 
@@ -82,10 +83,28 @@ class VocabParallelCrossEntropyCriterion(BaseCriterion):
                         dtype=torch.float32
                     )
 
+        if compute_metrics:
+            logging_output["targets"] = targets
+            logging_output["log_probs"] = target_log_probs
+            
+            logging_output["path_infos"] = sample["path_infos"]
+
+            # for ssl prototypes
+            logging_output["final_embedding"] = actv.transpose(0,1)
+
+            # compute el2n score
+            nsentences = sample["target"].size(0)
+            loss_vector, _ = self.compute_loss(model, net_output, sample, reduce=False)
+            loss_vector = loss_vector.reshape((nsentences,-1))
+
+            # 2 norm of loss vector
+            logging_output["el2n_score"] = torch.linalg.norm(loss_vector, dim=1)
+            logging_output["id"] = sample["id"]
+
         return loss, sample_size, logging_output
 
     @staticmethod
-    def reduce_metrics(logging_outputs) -> None:
+    def reduce_metrics(logging_outputs, data_pruning_metrics=None, data_pruning_metrics_savedir=None, length_dataset=None) -> None:
         """Aggregate logging outputs from data parallel training."""
         loss_sum = sum(log.get("loss", 0) for log in logging_outputs)
         ntokens = sum(log.get("ntokens", 0) for log in logging_outputs)
@@ -111,6 +130,129 @@ class VocabParallelCrossEntropyCriterion(BaseCriterion):
         metrics.log_derived(
             "ppl", lambda meters: utils.get_perplexity(meters["loss"].avg)
         )
+        # rounding to nearest int
+        def serialize_tensor(t):
+            return [int(x) for x in t.cpu().detach().numpy().tolist()]
+
+        # rounding to int + 5 decimal digits
+        def serialize_tensor_ppl(t):
+            return [int(x * 10000) for x in t.cpu().detach().numpy().tolist()]
+
+        # not rounding at all
+        def serialize_tensor_to_numpy(t):
+            return t.cpu().detach().numpy()
+
+        if data_pruning_metrics:
+            if "ppl" in data_pruning_metrics:
+                with open(f"{data_pruning_metrics_savedir}/ppl_output.json", "a") as f:
+                    for logging_output in logging_outputs:
+                        batch_size = logging_output["targets"].shape[0]
+                        for i in range(batch_size):
+
+                            num_pad = sum(int(x==1) for x in serialize_tensor(logging_output["targets"][i]))
+                            length_final = len(serialize_tensor(logging_output["log_probs"][i]))
+
+                            log_line = {
+                                "id": int(logging_output["id"][i]),
+                                "t":  serialize_tensor(logging_output["targets"][i]),
+                                "p":  serialize_tensor_ppl(logging_output["log_probs"][i]),
+                                "path_info": logging_output["path_infos"][i],
+                                "num_pad": num_pad,
+                                "length_final": length_final
+                            }
+                            f.write(json.dumps(log_line) + "\n")
+                logger.info("Done writing ppl info!")
+
+
+            if "ssl_prototypes_compute_centroids" in data_pruning_metrics:
+
+
+                if not os.path.isdir(f"{data_pruning_metrics_savedir}/ssl_embeddings"):
+                    os.mkdir(f"{data_pruning_metrics_savedir}/ssl_embeddings")
+
+                if not os.path.isfile(f"{data_pruning_metrics_savedir}/ssl_embeddings/counter.txt"):
+                    with open(f"{data_pruning_metrics_savedir}/ssl_embeddings/counter.txt", "w") as f_counter:
+                        f_counter.write("0")
+
+                # counter for where you are in the memmap
+                counter = int(open(f"{data_pruning_metrics_savedir}/ssl_embeddings/counter.txt", "r").readlines()[0])
+
+                # guess the model embedding size by looking at first output for the batch
+                # model_embedding_size = logging_outputs[0]["final_embedding"].shape[1]
+
+                model_embedding_size = logging_outputs[0]["final_embedding"].shape[-1]
+
+                if not os.path.isfile(f"{data_pruning_metrics_savedir}/ssl_embeddings/embedding.npy"):
+                    # Create the memmap file in w+ mode
+                    embedding_out_file = np.memmap(f"{data_pruning_metrics_savedir}/ssl_embeddings/embedding.npy", dtype='float32', mode='w+', shape=(length_dataset,model_embedding_size))
+                else:
+                    # Append to existing file
+                    embedding_out_file = np.memmap(f"{data_pruning_metrics_savedir}/ssl_embeddings/embedding.npy", dtype='float32', mode='r+', shape=(length_dataset,model_embedding_size))
+
+                
+                with open(f"{data_pruning_metrics_savedir}/ssl_embeddings/index.json", "a") as f_index_out:
+
+                    for logging_output in logging_outputs:
+                        hash_targets = hash(logging_output["targets"])
+                        hash_path_infos = hash("".join(logging_output["path_infos"]))
+
+                        hash_to_add = str(hash_targets) + "" + str(hash_path_infos)
+                        batch_size = logging_output["targets"].shape[0]
+
+                        num_adding = logging_output["final_embedding"].shape[0]
+                        assert batch_size == num_adding
+
+                        # Write the embedding
+                        # embedding_out_file[counter: counter+num_adding] = serialize_tensor_to_numpy(logging_output["final_embedding"])
+
+                        # Write the metadata
+                        for i in range(batch_size):
+                            num_pad = sum(int(x==1) for x in serialize_tensor(logging_output["targets"][i]))
+                            length_final = len(serialize_tensor(logging_output["log_probs"][i])) 
+                            
+                            # If the last 3 tokens were pad, then we want arr[-4] to get the lost non-pad token embedding
+                            sub_from_end = -1*num_pad - 1
+                            embedding_out_file[counter+i] = serialize_tensor_to_numpy(logging_output["final_embedding"][i, sub_from_end])
+       
+                            log_line = {
+                                "index_in_arr":  counter + i,
+                                "path_info": logging_output["path_infos"][i],
+                                "length": length_final,
+                                "num_pad": num_pad
+                            }
+                            f_index_out.write(json.dumps(log_line) + "\n")
+
+                        # Update the counter
+                        counter += num_adding
+
+
+
+                    logger.info("Done writing embedding info!")
+                
+                # After we are done, update the counter in the file
+                with open(f"{data_pruning_metrics_savedir}/ssl_embeddings/counter.txt", "w") as f_counter:
+                    f_counter.write(str(counter))
+  
+
+            if "el2n" in data_pruning_metrics:
+                with open(f"{data_pruning_metrics_savedir}/el2n.json", "a") as f:
+                    for logging_output in logging_outputs:
+                        batch_size = logging_output["targets"].shape[0]
+
+                        
+                        for i in range(batch_size):
+
+                            num_pad = sum(int(x==1) for x in serialize_tensor(logging_output["targets"][i]))
+                            length_final = len(serialize_tensor(logging_output["log_probs"][i]))
+                            log_line = {
+                                "path_info": logging_output["path_infos"][i],
+                                "el2n_metric": logging_output["el2n_score"][i].item(),
+                                "length": length_final,
+                                "num_pad": num_pad
+                            }
+                            f.write(json.dumps(log_line) + "\n")
+                logger.info("Done writing el2n info!")
+
 
     @staticmethod
     def logging_outputs_can_be_summed() -> bool:
