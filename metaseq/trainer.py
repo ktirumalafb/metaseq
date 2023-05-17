@@ -992,6 +992,7 @@ class Trainer(object):
 
         if not os.path.exists(os.path.join(self.cfg.criterion.compute_data_pruning_metrics_savedir, final_folder_name)):
             os.mkdir(os.path.join(self.cfg.criterion.compute_data_pruning_metrics_savedir, final_folder_name))
+
         # self.cfg.common.empty_cache_freq
 
         # If EMA is enabled through store_ema=True
@@ -1292,7 +1293,7 @@ class Trainer(object):
             zip(
                 *distributed_utils.all_gather_list(
                     [logging_outputs] + list(extra_stats_to_sum),
-                    max_size=getattr(self.cfg.common, "all_gather_list_size", 16384),
+                    max_size=200000000,
                     group=self.data_parallel_process_group,
                 )
             )

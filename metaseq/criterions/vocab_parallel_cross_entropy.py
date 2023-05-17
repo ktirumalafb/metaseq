@@ -6,8 +6,21 @@
 import math
 import torch
 
+
+
 from metaseq import metrics, utils
 from metaseq.criterions import BaseCriterion, register_criterion
+
+import logging
+
+import json
+import os
+
+import time
+
+import os
+
+logger = logging.getLogger(__name__)
 
 
 try:
@@ -42,12 +55,16 @@ class VocabParallelCrossEntropyCriterion(BaseCriterion):
         has_pad = target.eq(self.padding_idx).any().item()
 
         net_output = model(**sample["net_input"])
-        np = model.get_normalized_probs(net_output, log_probs=True)
-        target_log_probs = torch.gather(np, 2, targets.unsqueeze(2)).squeeze(2)
+
+
         loss = vocab_parallel_cross_entropy(net_output[0].float(), target)
+        loss_original_arr = loss.detach().clone()
         if has_pad:
             loss = loss * (target != self.padding_idx)
+
+
         loss = loss.sum()
+
         # When using target loss only, use num tokens in target only as the sample_size
         # See StreamingSrcTgtDataset
         sample_size = (
@@ -86,22 +103,14 @@ class VocabParallelCrossEntropyCriterion(BaseCriterion):
                     )
 
         if compute_metrics:
-            logging_output["targets"] = target
-            logging_output["log_probs"] = target_log_probs
-            
-            logging_output["path_infos"] = sample["path_infos"]
+            logging_output["targets_for_output"] = target
+            logging_output["loss_for_output"] = loss_original_arr
+            logging_output["path_infos_for_output"] = sample["path_infos"]
+            logging_output["id_for_output"] = sample["id"]
 
             # for ssl prototypes
             logging_output["final_embedding"] = actv.transpose(0,1)
 
-            # compute el2n score
-            nsentences = sample["target"].size(0)
-            loss_vector, _ = vocab_parallel_cross_entropy(net_output[0].float(), target)
-            loss_vector = loss_vector.reshape((nsentences,-1))
-
-            # 2 norm of loss vector
-            logging_output["el2n_score"] = torch.linalg.norm(loss_vector, dim=1)
-            logging_output["id"] = sample["id"]
 
         return loss, sample_size, logging_output
 
@@ -138,35 +147,59 @@ class VocabParallelCrossEntropyCriterion(BaseCriterion):
 
         # rounding to int + 5 decimal digits
         def serialize_tensor_ppl(t):
-            return [int(x * 10000) for x in t.cpu().detach().numpy().tolist()]
+            return [int(utils.get_perplexity(x) * 10000) for x in t.cpu().detach().numpy().tolist()]
 
         # not rounding at all
         def serialize_tensor_to_numpy(t):
             return t.cpu().detach().numpy()
-
-        from metaseq import pdb; pdb.set_trace()
         
         data_pruning_metrics_savedir = os.path.join(data_pruning_metrics_savedir, final_folder_name)
 
         if data_pruning_metrics:
             if "ppl" in data_pruning_metrics:
+                print("-------------- Starting printing here ------------------------")
+                print(f"len of logging outputs: {len(logging_outputs)}")
                 with open(f"{data_pruning_metrics_savedir}/ppl_output.json", "a") as f:
                     for logging_output in logging_outputs:
-                        batch_size = logging_output["targets"].shape[0]
-                        for i in range(batch_size):
+                        batch_size = logging_output["targets_for_output"].shape[0]
 
-                            num_pad = sum(int(x==1) for x in serialize_tensor(logging_output["targets"][i]))
-                            length_final = len(serialize_tensor(logging_output["log_probs"][i]))
+                        print(f"batch size: {batch_size}")
+
+                        size_id_tensor = len(logging_output["id_for_output"])
+                        print(f"size of id tensor: {size_id_tensor}")
+
+                        size_path_infos = len(logging_output["path_infos_for_output"])
+                        print(f"size of path info list: {size_path_infos}")
+
+                        size_targets_tensor = logging_output["targets_for_output"].shape[0]
+                        print(f"size targets: {size_targets_tensor}")
+
+                        size_loss_for_output = logging_output["loss_for_output"].shape[0]
+                        print(f"size loss for output: {size_loss_for_output}")
+
+                        print("******* Going through now ************")
+
+                        
+                        for i in range(batch_size):
+                           
+
+                            num_pad = sum(int(x==1) for x in serialize_tensor(logging_output["targets_for_output"][i]))
+                            length_final = len(serialize_tensor(logging_output["loss_for_output"][i]))
+
+                            print(f"num pad: {num_pad}")
+                            print(f"length_final: {length_final}")
 
                             log_line = {
-                                "id": int(logging_output["id"][i]),
-                                "t":  serialize_tensor(logging_output["targets"][i]),
-                                "p":  serialize_tensor_ppl(logging_output["log_probs"][i]),
-                                "path_info": logging_output["path_infos"][i],
+                                "id": int(logging_output["id_for_output"][i]) if i < size_id_tensor else None,
+                                "t":  serialize_tensor(logging_output["targets_for_output"][i]),
+                                "p":  serialize_tensor_ppl(logging_output["loss_for_output"][i]),
+                                "path_info": logging_output["path_infos_for_output"][i] if i < size_path_infos else None,
                                 "num_pad": num_pad,
                                 "length_final": length_final
                             }
                             f.write(json.dumps(log_line) + "\n")
+
+                        print("*********************************************")
                 logger.info("Done writing ppl info!")
 
 
@@ -199,11 +232,11 @@ class VocabParallelCrossEntropyCriterion(BaseCriterion):
                 with open(f"{data_pruning_metrics_savedir}/ssl_embeddings/index.json", "a") as f_index_out:
 
                     for logging_output in logging_outputs:
-                        hash_targets = hash(logging_output["targets"])
-                        hash_path_infos = hash("".join(logging_output["path_infos"]))
+                        hash_targets = hash(logging_output["targets_for_output"])
+                        hash_path_infos = hash("".join(logging_output["path_infos_for_output"]))
 
                         hash_to_add = str(hash_targets) + "" + str(hash_path_infos)
-                        batch_size = logging_output["targets"].shape[0]
+                        batch_size = logging_output["targets_for_output"].shape[0]
 
                         num_adding = logging_output["final_embedding"].shape[0]
                         assert batch_size == num_adding
@@ -213,8 +246,8 @@ class VocabParallelCrossEntropyCriterion(BaseCriterion):
 
                         # Write the metadata
                         for i in range(batch_size):
-                            num_pad = sum(int(x==1) for x in serialize_tensor(logging_output["targets"][i]))
-                            length_final = len(serialize_tensor(logging_output["log_probs"][i])) 
+                            num_pad = sum(int(x==1) for x in serialize_tensor(logging_output["targets_for_output"][i]))
+                            length_final = len(serialize_tensor(logging_output["loss_for_output"][i])) 
                             
                             # If the last 3 tokens were pad, then we want arr[-4] to get the lost non-pad token embedding
                             sub_from_end = -1*num_pad - 1
@@ -222,7 +255,7 @@ class VocabParallelCrossEntropyCriterion(BaseCriterion):
        
                             log_line = {
                                 "index_in_arr":  counter + i,
-                                "path_info": logging_output["path_infos"][i],
+                                "path_info": logging_output["path_infos_for_output"][i],
                                 "length": length_final,
                                 "num_pad": num_pad
                             }
@@ -238,26 +271,7 @@ class VocabParallelCrossEntropyCriterion(BaseCriterion):
                 # After we are done, update the counter in the file
                 with open(f"{data_pruning_metrics_savedir}/ssl_embeddings/counter.txt", "w") as f_counter:
                     f_counter.write(str(counter))
-  
 
-            if "el2n" in data_pruning_metrics:
-                with open(f"{data_pruning_metrics_savedir}/el2n.json", "a") as f:
-                    for logging_output in logging_outputs:
-                        batch_size = logging_output["targets"].shape[0]
-
-                        
-                        for i in range(batch_size):
-
-                            num_pad = sum(int(x==1) for x in serialize_tensor(logging_output["targets"][i]))
-                            length_final = len(serialize_tensor(logging_output["log_probs"][i]))
-                            log_line = {
-                                "path_info": logging_output["path_infos"][i],
-                                "el2n_metric": logging_output["el2n_score"][i].item(),
-                                "length": length_final,
-                                "num_pad": num_pad
-                            }
-                            f.write(json.dumps(log_line) + "\n")
-                logger.info("Done writing el2n info!")
 
 
     @staticmethod
@@ -267,4 +281,4 @@ class VocabParallelCrossEntropyCriterion(BaseCriterion):
         across workers prior to calling `reduce_metrics`. Setting this
         to True will improve distributed training speed.
         """
-        return True
+        return False
