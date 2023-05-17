@@ -977,11 +977,21 @@ class Trainer(object):
         metrics.log_stop_time("train_wall")
         return logging_output
 
+    def model_name_logic(self, subset_name):
+        true_subset_name = subset_name.strip().split("/")[1].strip()
+        if ("c4" in subset_name) or ("cc_edouard" in subset_name):
+            return f"analysis_00000_{true_subset_name}"
+        else:
+            return f"analysis_00_{true_subset_name}"
+
     @metrics.aggregate("valid")
-    def valid_step(self, sample, num_step=0, raise_oom=False):
+    def valid_step(self, sample, num_step=0, raise_oom=False, subset_name=None):
         """Do forward pass in evaluation mode."""
 
-        from metaseq import pdb; pdb.set_trace()
+        final_folder_name = self.model_name_logic(subset_name)
+
+        if not os.path.exists(os.path.join(self.cfg.criterion.compute_data_pruning_metrics_savedir, final_folder_name)):
+            os.mkdir(os.path.join(self.cfg.criterion.compute_data_pruning_metrics_savedir, final_folder_name))
         # self.cfg.common.empty_cache_freq
 
         # If EMA is enabled through store_ema=True
@@ -1036,7 +1046,7 @@ class Trainer(object):
             )
 
         # log validation stats
-        logging_output = self._reduce_and_log_stats(logging_outputs, sample_size)
+        logging_output = self._reduce_and_log_stats(logging_outputs, sample_size, final_folder_name=final_folder_name)
         return logging_output
 
     def zero_grad(self):
@@ -1368,7 +1378,7 @@ class Trainer(object):
                 )
 
     def _reduce_and_log_stats(
-        self, logging_outputs, sample_size, grad_norm=None, ewm_loss_ratio=0
+        self, logging_outputs, sample_size, grad_norm=None, ewm_loss_ratio=0, final_folder_name=None
     ):
         # perform a bunch of arch-specific gradient metrics
         for name, param in self.model.named_parameters():
@@ -1429,8 +1439,8 @@ class Trainer(object):
         with metrics.aggregate() as agg:
             if logging_outputs is not None:
 
-                full_model_folder_name = 
-                self.task.reduce_metrics(logging_outputs, self.get_criterion())
+                # full_model_folder_name = 
+                self.task.reduce_metrics(logging_outputs, self.get_criterion(), final_folder_name=final_folder_name)
                 del logging_outputs
 
             # extra warning for criterions that don't properly log a loss value

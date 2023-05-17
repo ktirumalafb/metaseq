@@ -433,7 +433,7 @@ class BaseTask(object):
         """Hook function called before the start of each validation epoch."""
         pass
 
-    def reduce_metrics(self, logging_outputs, criterion):
+    def reduce_metrics(self, logging_outputs, criterion, final_folder_name=None):
         """Aggregate logging outputs from data parallel training."""
         if not any("ntokens" in log for log in logging_outputs):
             warnings.warn(
@@ -454,9 +454,9 @@ class BaseTask(object):
 
         if self.args._name == "streaming_language_modeling" and ('compute_data_pruning_metrics' in self.args and self.args['compute_data_pruning_metrics']):
             if hasattr(criterion, "unwrapped_module"):
-                criterion.unwrapped_module.__class__.reduce_metrics(logging_outputs, self.data_pruning_metrics, self.data_pruning_savedir, len(self.datasets['train'].dataset))
+                criterion.unwrapped_module.__class__.reduce_metrics(logging_outputs, self.data_pruning_metrics, self.data_pruning_savedir, len(self.datasets['train'].dataset), final_folder_name=final_folder_name)
             else:
-                criterion.__class__.reduce_metrics(logging_outputs, self.data_pruning_metrics, self.data_pruning_savedir, len(self.datasets['train'].dataset))
+                criterion.__class__.reduce_metrics(logging_outputs, self.data_pruning_metrics, self.data_pruning_savedir, len(self.datasets['train'].dataset), final_folder_name=final_folder_name)
         else:
             if hasattr(criterion, "unwrapped_module"):
                 criterion.unwrapped_module.__class__.reduce_metrics(logging_outputs)

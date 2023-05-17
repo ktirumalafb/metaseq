@@ -38,9 +38,12 @@ class VocabParallelCrossEntropyCriterion(BaseCriterion):
         3) logging outputs to display while training
         """
         target = sample["target"]
+        
         has_pad = target.eq(self.padding_idx).any().item()
 
         net_output = model(**sample["net_input"])
+        np = model.get_normalized_probs(net_output, log_probs=True)
+        target_log_probs = torch.gather(np, 2, targets.unsqueeze(2)).squeeze(2)
         loss = vocab_parallel_cross_entropy(net_output[0].float(), target)
         if has_pad:
             loss = loss * (target != self.padding_idx)
@@ -83,7 +86,7 @@ class VocabParallelCrossEntropyCriterion(BaseCriterion):
                     )
 
         if compute_metrics:
-            logging_output["targets"] = targets
+            logging_output["targets"] = target
             logging_output["log_probs"] = target_log_probs
             
             logging_output["path_infos"] = sample["path_infos"]
@@ -93,7 +96,7 @@ class VocabParallelCrossEntropyCriterion(BaseCriterion):
 
             # compute el2n score
             nsentences = sample["target"].size(0)
-            loss_vector, _ = self.compute_loss(model, net_output, sample, reduce=False)
+            loss_vector, _ = vocab_parallel_cross_entropy(net_output[0].float(), target)
             loss_vector = loss_vector.reshape((nsentences,-1))
 
             # 2 norm of loss vector
@@ -103,7 +106,7 @@ class VocabParallelCrossEntropyCriterion(BaseCriterion):
         return loss, sample_size, logging_output
 
     @staticmethod
-    def reduce_metrics(logging_outputs, data_pruning_metrics=None, data_pruning_metrics_savedir=None, length_dataset=None) -> None:
+    def reduce_metrics(logging_outputs, data_pruning_metrics=None, data_pruning_metrics_savedir=None, length_dataset=None, final_folder_name=None) -> None:
         """Aggregate logging outputs from data parallel training."""
         loss_sum = sum(log.get("loss", 0) for log in logging_outputs)
         ntokens = sum(log.get("ntokens", 0) for log in logging_outputs)
@@ -142,6 +145,9 @@ class VocabParallelCrossEntropyCriterion(BaseCriterion):
             return t.cpu().detach().numpy()
 
         from metaseq import pdb; pdb.set_trace()
+        
+        data_pruning_metrics_savedir = os.path.join(data_pruning_metrics_savedir, final_folder_name)
+
         if data_pruning_metrics:
             if "ppl" in data_pruning_metrics:
                 with open(f"{data_pruning_metrics_savedir}/ppl_output.json", "a") as f:

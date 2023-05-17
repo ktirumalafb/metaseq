@@ -307,6 +307,18 @@ def train(
     def train(
         samples,
     ):
+        logger.info("Starting validation here!!!")
+        valid_losses, should_stop = validate_and_save(
+            cfg,
+            trainer,
+            task,
+            epoch_itr,
+            valid_subsets,
+            False, # end_of_epoch
+            False, # was_succesful_step = False
+        )
+
+        return 
         with metrics.aggregate("train_inner"):
             if update_freq == 1:
                 samples = [samples]
@@ -344,15 +356,15 @@ def train(
                 )
             )
 
-        valid_losses, should_stop = validate_and_save(
-            cfg,
-            trainer,
-            task,
-            epoch_itr,
-            valid_subsets,
-            end_of_epoch,
-            log_output is not None,
-        )
+        # valid_losses, should_stop = validate_and_save(
+        #     cfg,
+        #     trainer,
+        #     task,
+        #     epoch_itr,
+        #     valid_subsets,
+        #     end_of_epoch,
+        #     log_output is not None,
+        # )
 
         return valid_losses, should_stop
 
@@ -489,10 +501,11 @@ def validate_and_save(
     do_validate = (
         should_stop
         or (
-            cfg.dataset.validate_interval_updates > 0
-            and num_updates > 0
-            and num_updates % cfg.dataset.validate_interval_updates == 0
-            and was_successful_step
+            # cfg.dataset.validate_interval_updates > 0
+            # and num_updates > 0
+            # and num_updates % cfg.dataset.validate_interval_updates == 0
+            # and was_successful_step
+            num_updates == 0
         )
     ) and not cfg.dataset.disable_validation
 
@@ -768,7 +781,7 @@ def validate(
                         and i > cfg.dataset.max_valid_steps
                     ):
                         break
-                    trainer.valid_step(sample, num_step=i)
+                    trainer.valid_step(sample, num_step=i, subset_name=subset)
             # log validation stats
             stats = add_num_updates_to_stats(trainer, agg.get_smoothed_values())
             progress.print(stats, tag=subset, step=trainer.get_num_updates())
