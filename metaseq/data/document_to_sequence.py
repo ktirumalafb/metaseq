@@ -289,16 +289,17 @@ class DocumentToSequenceDataset(torch.utils.data.IterableDataset):
             """
             for idx in indices:
                 ln = self.len_cache.data[idx]
+                sp_id = self.dataset[idx]["sp_id"]
                 if ln == 0:
                     # Cache miss: we don't know the number of tokens
                     # so we have to load and tokenize the document.
-                    r = self.dataset[idx]
+                    r = self.dataset[idx]["item"]
                     if self.source_target:
                         ln = r[0].shape[0]
                     else:
                         ln = r.shape[0]
                     self.len_cache.data[idx] = ln
-                    yield (ln, [r])
+                    yield (ln, [r], sp_id)
                 else:
                     # Cache hit: we know the number of tokens, so we can
                     # skip loading the document for now.
@@ -306,7 +307,7 @@ class DocumentToSequenceDataset(torch.utils.data.IterableDataset):
                     # We create a single-element list here, so that we can replace the single element
                     # with the real Tensor value the first time _any_ SentenceFragment needs the
                     # real data from this document.
-                    yield (ln, [int(idx)])
+                    yield (ln, [int(idx)], sp_id)
 
         block_itr = self.block_iterator(documents(), self.block_size, self.drop_last)
 
@@ -374,6 +375,9 @@ class DocumentToSequenceDataset(torch.utils.data.IterableDataset):
                 # we know we are not skipping this sequence, so
                 # we perform any document loading that we deferred in the skipping process.
                 elem["ids"] = torch.LongTensor(elem["ids"])
+
+                path_infos_save = elem["path_infos"]
+
                 subsequences = []
                 # assemble the sequence form the SequenceFragment
                 for doc, start, ln in elem["block"]:
@@ -396,7 +400,7 @@ class DocumentToSequenceDataset(torch.utils.data.IterableDataset):
                         if isinstance(doc[0], int):
                             # an index into dataset that hasn't been loaded yet
                             # load it now (and for all other SequenceFragments where it hasn't been loaded yet)
-                            doc[0] = self.dataset[doc[0]]
+                            doc[0] = self.dataset[doc[0]]["item"]
                         if self.source_target:
                             subsequences.append(
                                 tuple(elem[start : start + ln] for elem in doc[0])
@@ -410,6 +414,7 @@ class DocumentToSequenceDataset(torch.utils.data.IterableDataset):
                 else:
                     elem["block"] = torch.cat(subsequences)
                 elem["skip_time"] = skip_time
+                elem["path_infos"] = path_infos_save
                 yield elem
         except StopIteration:
             return
@@ -424,9 +429,11 @@ def yield_single_sentences_pad_8(iterable, block_size, drop_last) -> Iterable[Se
     return the example as is, without packing, truncating to block_size in cases of
     very long examples.
     """
-    for idx, (tokens, document) in enumerate(iterable):
+    for idx, (tokens, document, path_info) in enumerate(iterable):
         cur_block = []
         cur_block_ids = []
+        cur_path_info_arr = []
+
         if tokens > block_size:
             # truncate right side
             # TODO: Enable left side truncation
@@ -443,9 +450,11 @@ def yield_single_sentences_pad_8(iterable, block_size, drop_last) -> Iterable[Se
         padding = (["padding"], 0, cur_block_remain)
         cur_block.append(padding)
         cur_block_ids.append(idx)
+        cur_path_info_arr.append(path_info)
         yield {
             "ids": cur_block_ids,
             "block": cur_block,
+            "path_infos": cur_path_info_arr if len(cur_path_info_arr) > 0 else None
         }
 
 
@@ -453,8 +462,9 @@ def yield_doc_blocks(iterable, block_size, drop_last) -> Iterable[Sequence]:
     """Mimics sample-break-mode complete"""
     cur_block = []
     cur_block_ids = []
+    cur_path_info_arr = []
     cur_block_remain = block_size
-    for idx, (tokens, document) in enumerate(iterable):
+    for idx, (tokens, document, path_info) in enumerate(iterable):
         if tokens > block_size:
             # truncate right side
             tokens = block_size
@@ -486,10 +496,11 @@ def yield_doc_blocks(iterable, block_size, drop_last) -> Iterable[Sequence]:
 
 
 def yield_passthrough(iterable, block_size, drop_last) -> Iterable[Sequence]:
-    for idx, (tokens, document) in enumerate(iterable):
+    for idx, (tokens, document, path_info) in enumerate(iterable):
         yield {
             "ids": [idx],
             "block": [(document, 0, tokens)],
+            "path_infos": [path_info]
         }
 
 
@@ -497,9 +508,15 @@ def yield_token_blocks(iterable, block_size, drop_last) -> Iterable[Sequence]:
     """Sample break mode = None. (Pre-Training default)."""
     cur_block = []
     cur_block_ids = []
+    cur_path_info_arr = []
     cur_block_remain = block_size
-    for idx, (tokens, document) in enumerate(iterable):
+    for idx, (tokens, document, path_info) in enumerate(iterable):
         cur_block_ids.append(idx)
+        assert path_info is not None
+
+        if path_info is not None:
+            cur_path_info_arr.append(path_info)
+        
         item_offset = 0
         while tokens:
             num_to_take = min(tokens, cur_block_remain)
@@ -508,13 +525,17 @@ def yield_token_blocks(iterable, block_size, drop_last) -> Iterable[Sequence]:
             cur_block_remain -= num_to_take
             tokens -= num_to_take
 
+            cur_path_info_arr.append(path_info)
+
             if cur_block_remain == 0:
                 yield {
                     "ids": cur_block_ids,
                     "block": cur_block,
+                    "path_infos": cur_path_info_arr if len(cur_path_info_arr) > 0 else None
                 }
                 cur_block = []
                 cur_block_ids = []
+                cur_path_info_arr = []
                 cur_block_remain = block_size
 
     if not drop_last and len(cur_block):
@@ -523,4 +544,5 @@ def yield_token_blocks(iterable, block_size, drop_last) -> Iterable[Sequence]:
         yield {
             "ids": cur_block_ids,
             "block": cur_block,
+            "path_infos": cur_path_info_arr if len(cur_path_info_arr) > 0 else None
         }

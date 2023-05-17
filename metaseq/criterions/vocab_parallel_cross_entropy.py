@@ -37,7 +37,6 @@ class VocabParallelCrossEntropyCriterion(BaseCriterion):
         2) the sample size, which is used as the denominator for the gradient
         3) logging outputs to display while training
         """
-        from metaseq import pdb; pdb.set_trace()
         target = sample["target"]
         has_pad = target.eq(self.padding_idx).any().item()
 
@@ -142,6 +141,7 @@ class VocabParallelCrossEntropyCriterion(BaseCriterion):
         def serialize_tensor_to_numpy(t):
             return t.cpu().detach().numpy()
 
+        from metaseq import pdb; pdb.set_trace()
         if data_pruning_metrics:
             if "ppl" in data_pruning_metrics:
                 with open(f"{data_pruning_metrics_savedir}/ppl_output.json", "a") as f:

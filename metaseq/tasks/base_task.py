@@ -396,7 +396,7 @@ class BaseTask(object):
                 "Starting first forward pass and waiting for dataloader in other ranks"
             )
         # forward
-        loss, sample_size, logging_output = criterion(model, sample)
+        loss, sample_size, logging_output = criterion(model, sample, compute_metrics=self.compute_data_pruning_metrics)
         if ignore_grad:
             loss *= 0
         if update_num == 0:
@@ -410,7 +410,7 @@ class BaseTask(object):
     def valid_step(self, sample, model, criterion):
         model.eval()
         with torch.no_grad():
-            loss, sample_size, logging_output = criterion(model, sample)
+            loss, sample_size, logging_output = criterion(model, sample, compute_metrics=self.compute_data_pruning_metrics)
         return loss, sample_size, logging_output
 
     def optimizer_step(self, optimizer, model, update_num):
@@ -452,10 +452,16 @@ class BaseTask(object):
             nsentences = sum(log.get("nsentences", 0) for log in logging_outputs)
             metrics.log_scalar("bsz", nsentences, priority=190, round=1)
 
-        if hasattr(criterion, "unwrapped_module"):
-            criterion.unwrapped_module.__class__.reduce_metrics(logging_outputs)
+        if self.args._name == "streaming_language_modeling" and ('compute_data_pruning_metrics' in self.args and self.args['compute_data_pruning_metrics']):
+            if hasattr(criterion, "unwrapped_module"):
+                criterion.unwrapped_module.__class__.reduce_metrics(logging_outputs, self.data_pruning_metrics, self.data_pruning_savedir, len(self.datasets['train'].dataset))
+            else:
+                criterion.__class__.reduce_metrics(logging_outputs, self.data_pruning_metrics, self.data_pruning_savedir, len(self.datasets['train'].dataset))
         else:
-            criterion.__class__.reduce_metrics(logging_outputs)
+            if hasattr(criterion, "unwrapped_module"):
+                criterion.unwrapped_module.__class__.reduce_metrics(logging_outputs)
+            else:
+                criterion.__class__.reduce_metrics(logging_outputs)
 
     def state_dict(self):
         if self.state is not None:

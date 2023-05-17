@@ -113,8 +113,20 @@ class JsonlDataset(torch.utils.data.Dataset):
         if self.tokenizer is not None:
             item = self.tokenizer(item)
 
-        from metaseq import pdb; pdb.set_trace()
-        return item
+        return_dict = None
+        if self.include_path_infos_in_jsonl_dataset:
+            return_dict = {
+                "item": item,
+                "sp_id": f"{self.path}|{idx}"
+            }
+        else:
+            return_dict = {
+                "item": item
+            }
+
+        assert return_dict is not None
+
+        return return_dict
 
     def __len__(self):
         # Virtual length of the dataset depends on the epoch number if the number of documents

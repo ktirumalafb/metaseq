@@ -663,7 +663,9 @@ class StreamingLanguageModelingTask(LegacyTask):
         else:
             # This is the default logic in main 
             # see https://github.com/ktirumalafb/metaseq/blob/ktirumala/current_main/metaseq/tasks/streaming_language_modeling.py
-    
+
+            include_path_infos_in_jsonl_dataset = (self.args.use_data_pruning_metrics) or (self.args.compute_data_pruning_metrics is not None)
+
             # determine number of shards for this split
             cur_shard_str = self.get_shard_str(epoch, split)
 
@@ -681,6 +683,7 @@ class StreamingLanguageModelingTask(LegacyTask):
                         tokenizer=self._tokenize_one_json,
                         epoch=epoch,
                         data_subshard_count=data_subshard_count,
+                        include_path_infos_in_jsonl_dataset=include_path_infos_in_jsonl_dataset
                     )
                 )
                 corpora.append(os.path.splitext(file)[0])
@@ -744,6 +747,9 @@ class StreamingLanguageModelingTask(LegacyTask):
             logger.error(
                 f"found {n_duplicate}/{ids.numel()} duplicate document IDs in the same batch!"
             )
+        path_infos = None
+        if "path_infos" in items[0] and items[0]["path_infos"] is not None:
+            path_infos = [x["path_infos"][0] for x in items if x is not None]
 
         # metaseq expects batches to have the following structure
         return {
@@ -754,6 +760,7 @@ class StreamingLanguageModelingTask(LegacyTask):
             "target": target,
             "nsentences": input.size(0),
             "ntokens": input.ne(self.dictionary.pad()).sum(),
+            "path_infos": path_infos
         }
 
     def dataset(self, split):

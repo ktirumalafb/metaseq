@@ -981,6 +981,9 @@ class Trainer(object):
     def valid_step(self, sample, num_step=0, raise_oom=False):
         """Do forward pass in evaluation mode."""
 
+        from metaseq import pdb; pdb.set_trace()
+        # self.cfg.common.empty_cache_freq
+
         # If EMA is enabled through store_ema=True
         # and task.uses_ema is True, pass the EMA model as a keyword
         # argument to the task.
@@ -1425,6 +1428,8 @@ class Trainer(object):
 
         with metrics.aggregate() as agg:
             if logging_outputs is not None:
+
+                full_model_folder_name = 
                 self.task.reduce_metrics(logging_outputs, self.get_criterion())
                 del logging_outputs
 
