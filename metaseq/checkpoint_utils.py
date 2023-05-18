@@ -375,7 +375,7 @@ def get_paths_to_load(path, suffix="rank-"):
     local_path, checkpoint_files = _cache_checkpoint_files(path, suffix)
     checkpoint_files_count = len(checkpoint_files)
 
-    # Check if this looks like a sharded checkpoint
+    # Check if this looks like a sharded checkpoint 
     if not _is_checkpoint_sharded(checkpoint_files):
         return [local_path], 1
 
@@ -454,6 +454,7 @@ def load_checkpoint_to_cpu(path, arg_overrides=None, load_on_all_ranks=False) ->
     """
 
     # Expand multi-part checkpoints like "checkpoint_last-shard0.pt"
+    print(f"path is: {path}")
     paths_to_load, ddp_checkpoint_files_count = get_paths_to_load(path, suffix="shard")
     world_size = distributed_utils.get_data_parallel_world_size()
     try:

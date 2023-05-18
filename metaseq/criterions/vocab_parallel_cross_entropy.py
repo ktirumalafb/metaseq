@@ -157,27 +157,27 @@ class VocabParallelCrossEntropyCriterion(BaseCriterion):
 
         if data_pruning_metrics:
             if "ppl" in data_pruning_metrics:
-                print("-------------- Starting printing here ------------------------")
-                print(f"len of logging outputs: {len(logging_outputs)}")
+                # print("-------------- Starting printing here ------------------------")
+                # print(f"len of logging outputs: {len(logging_outputs)}")
                 with open(f"{data_pruning_metrics_savedir}/ppl_output.json", "a") as f:
                     for logging_output in logging_outputs:
                         batch_size = logging_output["targets_for_output"].shape[0]
 
-                        print(f"batch size: {batch_size}")
+                        # print(f"batch size: {batch_size}")
 
                         size_id_tensor = len(logging_output["id_for_output"])
-                        print(f"size of id tensor: {size_id_tensor}")
+                        # print(f"size of id tensor: {size_id_tensor}")
 
                         size_path_infos = len(logging_output["path_infos_for_output"])
-                        print(f"size of path info list: {size_path_infos}")
+                        # print(f"size of path info list: {size_path_infos}")
 
                         size_targets_tensor = logging_output["targets_for_output"].shape[0]
-                        print(f"size targets: {size_targets_tensor}")
+                        # print(f"size targets: {size_targets_tensor}")
 
                         size_loss_for_output = logging_output["loss_for_output"].shape[0]
-                        print(f"size loss for output: {size_loss_for_output}")
+                        # print(f"size loss for output: {size_loss_for_output}")
 
-                        print("******* Going through now ************")
+                        # print("******* Going through now ************")
 
                         
                         for i in range(batch_size):
@@ -186,8 +186,8 @@ class VocabParallelCrossEntropyCriterion(BaseCriterion):
                             num_pad = sum(int(x==1) for x in serialize_tensor(logging_output["targets_for_output"][i]))
                             length_final = len(serialize_tensor(logging_output["loss_for_output"][i]))
 
-                            print(f"num pad: {num_pad}")
-                            print(f"length_final: {length_final}")
+                            # print(f"num pad: {num_pad}")
+                            # print(f"length_final: {length_final}")
 
                             log_line = {
                                 "id": int(logging_output["id_for_output"][i]) if i < size_id_tensor else None,
@@ -199,7 +199,7 @@ class VocabParallelCrossEntropyCriterion(BaseCriterion):
                             }
                             f.write(json.dumps(log_line) + "\n")
 
-                        print("*********************************************")
+                        # print("*********************************************")
                 logger.info("Done writing ppl info!")
 
 

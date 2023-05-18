@@ -1293,7 +1293,7 @@ class Trainer(object):
             zip(
                 *distributed_utils.all_gather_list(
                     [logging_outputs] + list(extra_stats_to_sum),
-                    max_size=200000000,
+                    max_size=600000000,
                     group=self.data_parallel_process_group,
                 )
             )
