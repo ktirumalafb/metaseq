@@ -485,7 +485,13 @@ class BaseTask(object):
 
         # This should only be activated if we are doing data pruning for language modeling evaluation
         if self.args._name == "streaming_language_modeling" and ('compute_data_pruning_metrics' in self.args and self.args['compute_data_pruning_metrics']):
-            criterion.__class__.reduce_metrics(logging_outputs, self.data_pruning_metrics, self.data_pruning_savedir, len(self.datasets['train'].dataset))
+            possible_keys = sorted(list(self.datasets.keys()))
+
+            # If the list is just [train] then the right dataset to look at is train
+            # If the list is [train, valid/xxx] then the right dataset to look at is the validation set
+            # In both cases, take the last thing in the sorted list
+            right_key = possible_keys[-1]
+            criterion.__class__.reduce_metrics(logging_outputs, self.data_pruning_metrics, self.data_pruning_savedir, len(self.datasets[right_key].dataset))
         else:
             criterion.__class__.reduce_metrics(logging_outputs)
 
