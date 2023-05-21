@@ -35,7 +35,7 @@ def is_master(cfg: DistributedTrainingConfig):
     return cfg.distributed_rank == 0
 
 
-def infer_init_method(cfg: DistributedTrainingConfig, force_distributed=False):
+def infer_init_method(cfg: DistributedTrainingConfig, force_distributed=True):
     if cfg.distributed_init_method is not None:
         return
 
@@ -166,8 +166,9 @@ def distributed_init(cfg: MetaseqConfig):
         logger.info(f"SLURM nodelist: {nodelist}")
 
     if (
-        getattr(cfg.model, "arch", None) == "transformer_lm_megatron"
-        or cfg.common.model_parallel_size > 1
+        # getattr(cfg.model, "arch", None) == "transformer_lm_megatron"
+        # or cfg.common.model_parallel_size > 1
+        True
     ):
         try:
             from megatron.mpu import (

@@ -71,6 +71,8 @@ def main(cfg: DictConfig, override_args=None):
         if use_cuda:
             model.cuda()
 
+    model.make_generation_fast_()
+
     # Print args
     logger.info(saved_cfg)
 
@@ -78,10 +80,13 @@ def main(cfg: DictConfig, override_args=None):
     criterion = task.build_criterion(saved_cfg.criterion)
     criterion.eval()
 
-    for subset in cfg.dataset.valid_subset.split(","):
+    # Go through all the possible eval subsets
+    valid_path = os.path.join(cfg.criterion.data, "valid")
+    for valid_subset_name in os.listdir(valid_path):
+        subset_name = os.path.join("valid", valid_subset_name)
         try:
-            task.load_dataset(subset, combine=False, epoch=1, task_cfg=saved_cfg.task)
-            dataset = task.dataset(subset)
+            task.load_dataset(subset_name, combine=False, epoch=1, task_cfg=saved_cfg.task)
+            dataset = task.dataset(subset_name)
         except KeyError:
             raise Exception("Cannot find dataset: " + subset)
 
@@ -104,9 +109,9 @@ def main(cfg: DictConfig, override_args=None):
         ).next_epoch_itr(shuffle=False)
         progress = progress_bar.get_progress_bar(
             itr,
-            log_format=cfg.common.log_format,
-            log_interval=cfg.common.log_interval,
-            prefix=f"valid on '{subset}' subset",
+            log_format="json",
+            log_interval=10,
+            prefix=f"valid on '{subset_name}' subset",
         )
 
         log_outputs = []

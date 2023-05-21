@@ -99,7 +99,7 @@ class ModelParallelMultiheadAttention(nn.Module):
         ), "Self-attention requires query, key and value to be of the same size"
 
         # TODO[Susan]: Remove the combine_qkv_proj conditional, given the below hard-coding.
-        self.combine_qkv_proj = True
+        self.combine_qkv_proj = False
         if self.combine_qkv_proj:
 
             def _init_method_weight_cpu(weight):

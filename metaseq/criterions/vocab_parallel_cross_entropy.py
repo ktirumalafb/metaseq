@@ -40,6 +40,8 @@ class VocabParallelCrossEntropyCriterion(BaseCriterion):
         target = sample["target"]
         has_pad = target.eq(self.padding_idx).any().item()
 
+        from metaseq import pdb; pdb.set_trace()
+
         net_output = model(**sample["net_input"])
         loss = vocab_parallel_cross_entropy(net_output[0].float(), target)
         if has_pad:

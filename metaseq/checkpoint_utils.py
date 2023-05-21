@@ -505,7 +505,7 @@ def load_checkpoint_to_cpu(path, arg_overrides=None, load_on_all_ranks=False) ->
 
         if arg_overrides is not None:
             overwrite_args_by_name(state["cfg"], arg_overrides)
-            overwrite_keys_not_present(state["cfg"], arg_overrides)
+            # overwrite_keys_not_present(state["cfg"], arg_overrides)
 
     state = _upgrade_state_dict(state)
     return state
@@ -530,6 +530,8 @@ def load_model_ensemble_and_task(
     ), "Cannot load state dict with strict=True and checkpoint shards > 1"
     ensemble = []
     cfg = None
+
+    suffix = ""
 
     for filename in filenames:
         orig_filename = filename
