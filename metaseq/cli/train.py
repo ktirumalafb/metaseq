@@ -481,22 +481,23 @@ def validate_and_save(
         and num_updates % cfg.checkpoint.save_interval_updates == 0
     )
 
-    do_save = (
-        (
-            end_of_epoch
-            and cfg.checkpoint.save_interval_epochs > 0
-            and epoch_itr.epoch % cfg.checkpoint.save_interval_epochs == 0
-        )
-        or (
-            (save_locally or save_to_NFS)
-            and num_updates >= cfg.dataset.validate_after_updates
-            and was_successful_step
-        )
-        or should_stop
-        or (
-            end_of_epoch # This is so that save_checkpoint is called, and actually does checkpoint_last saving to make restarts possible
-        )
-    )
+    # do_save = (
+    #     (
+    #         end_of_epoch
+    #         and cfg.checkpoint.save_interval_epochs > 0
+    #         and epoch_itr.epoch % cfg.checkpoint.save_interval_epochs == 0
+    #     )
+    #     or (
+    #         (save_locally or save_to_NFS)
+    #         and num_updates >= cfg.dataset.validate_after_updates
+    #         and was_successful_step
+    #     )
+    #     or should_stop
+    #     or (
+    #         end_of_epoch # This is so that save_checkpoint is called, and actually does checkpoint_last saving to make restarts possible
+    #     )
+    # )
+    do_save = False
     # do_validate = (
     #     should_stop
     #     or (
