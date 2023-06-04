@@ -289,7 +289,9 @@ class DocumentToSequenceDataset(torch.utils.data.IterableDataset):
             """
             for idx in indices:
                 ln = self.len_cache.data[idx]
-                sp_id = self.dataset[idx]["sp_id"]
+                sp_id = None
+                if "sp_id" in self.dataset[idx]:
+                    sp_id = self.dataset[idx]["sp_id"]
                 if ln == 0:
                     # Cache miss: we don't know the number of tokens
                     # so we have to load and tokenize the document.
@@ -512,7 +514,6 @@ def yield_token_blocks(iterable, block_size, drop_last) -> Iterable[Sequence]:
     cur_block_remain = block_size
     for idx, (tokens, document, path_info) in enumerate(iterable):
         cur_block_ids.append(idx)
-        assert path_info is not None
 
         if path_info is not None:
             cur_path_info_arr.append(path_info)
@@ -525,7 +526,8 @@ def yield_token_blocks(iterable, block_size, drop_last) -> Iterable[Sequence]:
             cur_block_remain -= num_to_take
             tokens -= num_to_take
 
-            cur_path_info_arr.append(path_info)
+            if path_info is not None:
+                cur_path_info_arr.append(path_info)
 
             if cur_block_remain == 0:
                 yield {

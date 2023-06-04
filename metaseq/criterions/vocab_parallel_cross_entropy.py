@@ -153,7 +153,9 @@ class VocabParallelCrossEntropyCriterion(BaseCriterion):
         def serialize_tensor_to_numpy(t):
             return t.cpu().detach().numpy()
         
-        data_pruning_metrics_savedir = os.path.join(data_pruning_metrics_savedir, final_folder_name)
+
+        if data_pruning_metrics_savedir is not None:
+            data_pruning_metrics_savedir = os.path.join(data_pruning_metrics_savedir, final_folder_name)
 
         if data_pruning_metrics:
             if "ppl" in data_pruning_metrics:
