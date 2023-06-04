@@ -307,54 +307,65 @@ def train(
     def train(
         samples,
     ):
-        with metrics.aggregate("train_inner"):
-            if update_freq == 1:
-                samples = [samples]
-            log_output = trainer.train_step(samples)
-
-        if log_output is not None:  # not OOM, overflow, ...
-            # log mid-epoch stats
-            num_updates = trainer.get_num_updates()
-            if num_updates % cfg.common.log_interval == 0:
-                stats = get_training_stats(metrics.get_smoothed_values("train_inner"))
-                progress.log(stats, tag="train_inner", step=num_updates)
-
-                # reset mid-epoch stats after each log interval
-                # the end-of-epoch stats will still be preserved
-                metrics.reset_meters("train_inner")
-
-        end_of_epoch = not itr.has_next()
-        if end_of_epoch:
-            grank = distributed_utils.get_global_rank()
-            dataset = epoch_itr.dataset
-            while not hasattr(dataset, "len_cache"):
-                dataset = dataset.dataset
-            len_cache = tuple(dataset.len_cache.data)
-            cache_hash = hash(len_cache)
-            contains_zero = any([x == 0 for x in len_cache])
-            logger.warning(
-                " ".join(
-                    [
-                        f"End of Epoch on rank {grank}:",
-                        f"sequences_consumed={itr.sequences_consumed}",
-                        f"n={itr.n}",
-                        f"len_cache_hash={cache_hash}",
-                        f"len_cache_has_zeros={contains_zero}",
-                    ]
-                )
-            )
-
         valid_losses, should_stop = validate_and_save(
             cfg,
             trainer,
             task,
             epoch_itr,
             valid_subsets,
-            end_of_epoch,
-            log_output is not None,
+            False, # end_of_epoch
+            False, # was_succesful_step = False
         )
 
         return valid_losses, should_stop
+        # with metrics.aggregate("train_inner"):
+        #     if update_freq == 1:
+        #         samples = [samples]
+        #     log_output = trainer.train_step(samples)
+
+        # if log_output is not None:  # not OOM, overflow, ...
+        #     # log mid-epoch stats
+        #     num_updates = trainer.get_num_updates()
+        #     if num_updates % cfg.common.log_interval == 0:
+        #         stats = get_training_stats(metrics.get_smoothed_values("train_inner"))
+        #         progress.log(stats, tag="train_inner", step=num_updates)
+
+        #         # reset mid-epoch stats after each log interval
+        #         # the end-of-epoch stats will still be preserved
+        #         metrics.reset_meters("train_inner")
+
+        # end_of_epoch = not itr.has_next()
+        # if end_of_epoch:
+        #     grank = distributed_utils.get_global_rank()
+        #     dataset = epoch_itr.dataset
+        #     while not hasattr(dataset, "len_cache"):
+        #         dataset = dataset.dataset
+        #     len_cache = tuple(dataset.len_cache.data)
+        #     cache_hash = hash(len_cache)
+        #     contains_zero = any([x == 0 for x in len_cache])
+        #     logger.warning(
+        #         " ".join(
+        #             [
+        #                 f"End of Epoch on rank {grank}:",
+        #                 f"sequences_consumed={itr.sequences_consumed}",
+        #                 f"n={itr.n}",
+        #                 f"len_cache_hash={cache_hash}",
+        #                 f"len_cache_has_zeros={contains_zero}",
+        #             ]
+        #         )
+        #     )
+
+        # valid_losses, should_stop = validate_and_save(
+        #     cfg,
+        #     trainer,
+        #     task,
+        #     epoch_itr,
+        #     valid_subsets,
+        #     end_of_epoch,
+        #     log_output is not None,
+        # )
+
+        # return valid_losses, should_stop
 
     skip_batches = None
     if len(cfg.dataset.skip_batches) > 0:
@@ -486,15 +497,16 @@ def validate_and_save(
             end_of_epoch # This is so that save_checkpoint is called, and actually does checkpoint_last saving to make restarts possible
         )
     )
-    do_validate = (
-        should_stop
-        or (
-            cfg.dataset.validate_interval_updates > 0
-            and num_updates > 0
-            and num_updates % cfg.dataset.validate_interval_updates == 0
-            and was_successful_step
-        )
-    ) and not cfg.dataset.disable_validation
+    # do_validate = (
+    #     should_stop
+    #     or (
+    #         cfg.dataset.validate_interval_updates > 0
+    #         and num_updates > 0
+    #         and num_updates % cfg.dataset.validate_interval_updates == 0
+    #         and was_successful_step
+    #     )
+    # ) and not cfg.dataset.disable_validation
+    do_validate = True
 
     # Save checkpoint before validating.
     if do_save:
@@ -511,6 +523,7 @@ def validate_and_save(
         )
 
     valid_losses = [None]
+    logger.info(f"Doing validate here... with do_validate set to: {do_validate}")
     if do_validate:
         valid_losses = validate(cfg, trainer, task, epoch_itr, valid_subsets)
 
