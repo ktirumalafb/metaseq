@@ -410,7 +410,7 @@ class BaseTask(object):
     def valid_step(self, sample, model, criterion):
         model.eval()
         with torch.no_grad():
-            loss, sample_size, logging_output = criterion(model, sample)
+            loss, sample_size, logging_output = criterion(model, sample, compute_metrics=self.compute_data_pruning_metrics)
         return loss, sample_size, logging_output
 
     def optimizer_step(self, optimizer, model, update_num):
@@ -433,7 +433,7 @@ class BaseTask(object):
         """Hook function called before the start of each validation epoch."""
         pass
 
-    def reduce_metrics(self, logging_outputs, criterion):
+    def reduce_metrics(self, logging_outputs, criterion, final_folder_name=None):
         """Aggregate logging outputs from data parallel training."""
         if not any("ntokens" in log for log in logging_outputs):
             warnings.warn(
@@ -452,10 +452,16 @@ class BaseTask(object):
             nsentences = sum(log.get("nsentences", 0) for log in logging_outputs)
             metrics.log_scalar("bsz", nsentences, priority=190, round=1)
 
-        if hasattr(criterion, "unwrapped_module"):
-            criterion.unwrapped_module.__class__.reduce_metrics(logging_outputs)
+        if self.args._name == "streaming_language_modeling" and ('compute_data_pruning_metrics' in self.args and self.args['compute_data_pruning_metrics']):
+            if hasattr(criterion, "unwrapped_module"):
+                criterion.unwrapped_module.__class__.reduce_metrics(logging_outputs, self.data_pruning_metrics, self.data_pruning_savedir, final_folder_name=final_folder_name)
+            else:
+                criterion.__class__.reduce_metrics(logging_outputs, self.data_pruning_metrics, self.data_pruning_savedir, final_folder_name=final_folder_name)
         else:
-            criterion.__class__.reduce_metrics(logging_outputs)
+            if hasattr(criterion, "unwrapped_module"):
+                criterion.unwrapped_module.__class__.reduce_metrics(logging_outputs)
+            else:
+                criterion.__class__.reduce_metrics(logging_outputs)
 
     def state_dict(self):
         if self.state is not None:

@@ -666,6 +666,10 @@ class StreamingLanguageModelingTask(LegacyTask):
             # determine number of shards for this split
             cur_shard_str = self.get_shard_str(epoch, split)
 
+            include_path_infos_in_jsonl_dataset = (self.args.compute_data_pruning_metrics is not None)
+
+            logger.info(f"include path infos is: {include_path_infos_in_jsonl_dataset}")
+
             # concatenate any jsonl files that are part of the shard
             datasets, corpora = [], []
             data_subshard_count = self.args.data_subshard_count if split == "train" else 1
@@ -680,6 +684,7 @@ class StreamingLanguageModelingTask(LegacyTask):
                         tokenizer=self._tokenize_one_json,
                         epoch=epoch,
                         data_subshard_count=data_subshard_count,
+                        include_path_infos_in_jsonl_dataset=include_path_infos_in_jsonl_dataset
                     )
                 )
                 corpora.append(os.path.splitext(file)[0])
@@ -744,6 +749,10 @@ class StreamingLanguageModelingTask(LegacyTask):
                 f"found {n_duplicate}/{ids.numel()} duplicate document IDs in the same batch!"
             )
 
+        path_infos = None
+        if "path_infos" in items[0] and items[0]["path_infos"] is not None:
+            path_infos = [x["path_infos"][0] for x in items if x is not None]
+
         # metaseq expects batches to have the following structure
         return {
             "id": ids,
@@ -753,6 +762,7 @@ class StreamingLanguageModelingTask(LegacyTask):
             "target": target,
             "nsentences": input.size(0),
             "ntokens": input.ne(self.dictionary.pad()).sum(),
+            "path_infos": path_infos
         }
 
     def dataset(self, split):

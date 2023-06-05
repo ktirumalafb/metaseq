@@ -6,8 +6,18 @@
 import math
 import torch
 
+import os
+
 from metaseq import metrics, utils
 from metaseq.criterions import BaseCriterion, register_criterion
+import logging
+
+import json
+
+import time
+import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 try:
@@ -29,7 +39,7 @@ class VocabParallelCrossEntropyCriterion(BaseCriterion):
                 "\n\nPlease install megatron using the setup instructions!"
             )
 
-    def forward(self, model, sample, reduce=True):
+    def forward(self, model, sample, reduce=True, compute_metrics=False):
         """Compute the loss for the given sample.
 
         Returns a tuple with three elements:
@@ -44,6 +54,9 @@ class VocabParallelCrossEntropyCriterion(BaseCriterion):
         loss = vocab_parallel_cross_entropy(net_output[0].float(), target)
         if has_pad:
             loss = loss * (target != self.padding_idx)
+
+        loss_original_arr = loss.detach().clone()
+
         loss = loss.sum()
         # When using target loss only, use num tokens in target only as the sample_size
         # See StreamingSrcTgtDataset
@@ -82,10 +95,21 @@ class VocabParallelCrossEntropyCriterion(BaseCriterion):
                         dtype=torch.float32
                     )
 
+        if compute_metrics:
+            logging_output["loss_for_output"] = loss_original_arr.sum(axis=1)
+            logging_output["path_infos_for_output"] = sample["path_infos"]
+
+            if len(logging_output["path_infos_for_output"]) != len(logging_output["loss_for_output"]):
+                assert len(logging_output["path_infos_for_output"]) <= len(logging_output["loss_for_output"])
+                # pad 
+                diff_in_len = len(logging_output["loss_for_output"]) - len(logging_output["path_infos_for_output"])
+                logging_output["path_infos_for_output"] += [-1] * diff_in_len
+                assert len(logging_output["path_infos_for_output"]) == len(logging_output["loss_for_output"])
+
         return loss, sample_size, logging_output
 
     @staticmethod
-    def reduce_metrics(logging_outputs) -> None:
+    def reduce_metrics(logging_outputs, data_pruning_metrics=None, data_pruning_metrics_savedir=None, final_folder_name=None) -> None:
         """Aggregate logging outputs from data parallel training."""
         loss_sum = sum(log.get("loss", 0) for log in logging_outputs)
         ntokens = sum(log.get("ntokens", 0) for log in logging_outputs)
@@ -112,6 +136,21 @@ class VocabParallelCrossEntropyCriterion(BaseCriterion):
             "ppl", lambda meters: utils.get_perplexity(meters["loss"].avg)
         )
 
+
+        if data_pruning_metrics_savedir is not None:
+            data_pruning_metrics_savedir = os.path.join(data_pruning_metrics_savedir, final_folder_name)
+            
+        if data_pruning_metrics_savedir is not None:
+            if data_pruning_metrics:
+                if "ppl" in data_pruning_metrics:
+                    df = pd.DataFrame()
+                    concat_loss = torch.cat([log["loss_for_output"] for log in logging_outputs])
+                    concat_path_infos = torch.cat([torch.Tensor(log["path_infos_for_output"]) for log in logging_outputs])
+                    df["loss"] = concat_loss
+                    df["path_infos"] = concat_path_infos
+                    df.to_csv(f"{data_pruning_metrics_savedir}/ppl_output.csv", mode='a', header=False)
+                    logger.info("Done writing ppl info!")
+
     @staticmethod
     def logging_outputs_can_be_summed() -> bool:
         """
@@ -119,4 +158,4 @@ class VocabParallelCrossEntropyCriterion(BaseCriterion):
         across workers prior to calling `reduce_metrics`. Setting this
         to True will improve distributed training speed.
         """
-        return True
+        return False

@@ -44,9 +44,11 @@ class JsonlDataset(torch.utils.data.Dataset):
         recache=False,
         epoch=1,
         data_subshard_count=1,
+        include_path_infos_in_jsonl_dataset: bool = False
     ):
         self.path = path
         self.tokenizer = tokenizer
+        self.include_path_infos_in_jsonl_dataset = include_path_infos_in_jsonl_dataset
 
         self.threadlocal = threading.local()
         # resolve symlinks to for cached indexes. This lets us re-use indexes
@@ -110,7 +112,21 @@ class JsonlDataset(torch.utils.data.Dataset):
             )
         if self.tokenizer is not None:
             item = self.tokenizer(item)
-        return item
+
+        return_dict = None
+        if self.include_path_infos_in_jsonl_dataset:
+            return_dict = {
+                "item": item,
+                "sp_id": idx
+            }
+        else:
+            return_dict = {
+                "item": item
+            }
+
+        assert return_dict is not None
+
+        return return_dict
 
     def __len__(self):
         # Virtual length of the dataset depends on the epoch number if the number of documents
