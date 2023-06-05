@@ -96,7 +96,7 @@ class VocabParallelCrossEntropyCriterion(BaseCriterion):
                     )
 
         if compute_metrics:
-            logging_output["loss_for_output"] = loss_original_arr.sum(axis=1)
+            logging_output["loss_for_output"] = loss_original_arr.mean(axis=1)
             logging_output["path_infos_for_output"] = sample["path_infos"]
 
             if len(logging_output["path_infos_for_output"]) != len(logging_output["loss_for_output"]):
@@ -139,7 +139,7 @@ class VocabParallelCrossEntropyCriterion(BaseCriterion):
 
         if data_pruning_metrics_savedir is not None:
             data_pruning_metrics_savedir = os.path.join(data_pruning_metrics_savedir, final_folder_name)
-            
+
         if data_pruning_metrics_savedir is not None:
             if data_pruning_metrics:
                 if "ppl" in data_pruning_metrics:
