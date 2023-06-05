@@ -646,6 +646,7 @@ class Trainer(object):
         shard_batch_itr=True,
         disable_iterator_cache=False,
     ):
+        epoch=0
         """Return an EpochBatchIterator over the training set for a given epoch."""
         logger.info("loading train data for epoch {}".format(epoch))
         logger.info("the split is {}".format(self.cfg.dataset.train_subset))
@@ -991,9 +992,9 @@ class Trainer(object):
 
         final_folder_name = self.model_name_logic(subset_name)
 
-        if self.cfg.criterion.compute_data_pruning_metrics_savedir is not None:
-            if not os.path.exists(os.path.join(self.cfg.criterion.compute_data_pruning_metrics_savedir, final_folder_name)):
-                os.mkdir(os.path.join(self.cfg.criterion.compute_data_pruning_metrics_savedir, final_folder_name))
+        # if self.cfg.criterion.compute_data_pruning_metrics_savedir is not None:
+        #     if not os.path.exists(os.path.join(self.cfg.criterion.compute_data_pruning_metrics_savedir, final_folder_name)):
+        #         os.mkdir(os.path.join(self.cfg.criterion.compute_data_pruning_metrics_savedir, final_folder_name))
 
 
         # If EMA is enabled through store_ema=True
