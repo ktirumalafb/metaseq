@@ -52,10 +52,13 @@ class VocabParallelCrossEntropyCriterion(BaseCriterion):
 
         net_output = model(**sample["net_input"])
         loss = vocab_parallel_cross_entropy(net_output[0].float(), target)
+
+        loss_original_arr = loss.detach().clone()
+
         if has_pad:
             loss = loss * (target != self.padding_idx)
 
-        loss_original_arr = loss.detach().clone()
+        # loss_original_arr = loss.detach().clone()
 
         loss = loss.sum()
         # When using target loss only, use num tokens in target only as the sample_size
@@ -96,7 +99,13 @@ class VocabParallelCrossEntropyCriterion(BaseCriterion):
                     )
 
         if compute_metrics:
-            logging_output["loss_for_output"] = loss_original_arr.mean(axis=1)
+            mask = (target != self.padding_idx)
+
+            # print(loss_original_arr.mean(axis=1))
+            # print(loss_original_arr.mean(axis=1).shape)
+
+            # logging_output["loss_for_output"] = loss_original_arr.mean(axis=1)
+            logging_output["loss_for_output"] = (loss_original_arr * mask).sum(dim=1) / mask.sum(dim=1)
             logging_output["path_infos_for_output"] = sample["path_infos"]
 
             if len(logging_output["path_infos_for_output"]) != len(logging_output["loss_for_output"]):
